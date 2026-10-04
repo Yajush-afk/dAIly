@@ -749,13 +749,22 @@ button {
   font-size: 12px;
   color: var(--muted);
 }
-.today-dashboard > .page-intro,
 .today-dashboard .section-heading {
   justify-content: flex-start;
   flex-wrap: wrap;
 }
 .today-dashboard > .page-intro {
   align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.today-dashboard > .page-intro h2 {
+  font-size: clamp(28px, 3vw, 36px);
+  text-wrap: balance;
+}
+.today-dashboard > .page-intro .today-date {
+  font-size: 14px;
+  margin-bottom: 10px;
 }
 .next-action {
   padding-bottom: 4px;

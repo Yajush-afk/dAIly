@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { DateTime } from 'luxon'
-import { ArrowRight, Play, Clock3, SlidersHorizontal } from 'lucide-react'
+import { ArrowRight, Play, Clock3 } from 'lucide-react'
 import type { Snapshot, Plan } from '../../shared/state'
 import type { DashboardSummary } from '../../shared/history'
 import { FocusSession } from './FocusSession'
@@ -594,14 +594,6 @@ export function TodayDashboard({
             , {state.profile.name}.
           </h2>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Update availability"
-          onClick={() => setCheckIn(true)}
-        >
-          <SlidersHorizontal />
-        </Button>
       </div>
       <NextAction
         state={state}
