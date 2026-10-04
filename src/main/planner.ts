@@ -6,7 +6,7 @@ import type { Snapshot } from '../shared/state'
 import { availableIntervals, currentCheckIn, schedule } from './scheduler'
 import type { Store } from './store'
 import type { OllamaClient } from './ollama'
-import { decisionConstraints, validateDecision } from './policy'
+import { decisionConstraints, orderPlanChoices, validateDecision } from './policy'
 import { planningLimits } from '../shared/planning-limits'
 import type { GoalDiscussionInput } from '../shared/goal-mentor'
 export { decisionConstraints } from './policy'
@@ -289,9 +289,12 @@ export class Planner {
         if (this.store.planningRevision !== state.planningRevision)
           throw new Error('Your situation changed while Gemma was thinking. Request a fresh plan.')
         try {
-          const decision = DecisionSchema.parse(
-            JSON.parse(response.content, (_key, value: unknown) =>
-              typeof value === 'string' ? value.replaceAll('—', '; ') : value,
+          const decision = orderPlanChoices(
+            state,
+            DecisionSchema.parse(
+              JSON.parse(response.content, (_key, value: unknown) =>
+                typeof value === 'string' ? value.replaceAll('—', '; ') : value,
+              ),
             ),
           )
           readableDecision(decision)

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { Store } from '../src/main/store'
 import { Planner } from '../src/main/planner'
 import { availableIntervals, schedule } from '../src/main/scheduler'
-import { validateDecision } from '../src/main/policy'
+import { orderPlanChoices, validateDecision } from '../src/main/policy'
 import { defaultProfile, type Snapshot } from '../src/shared/state'
 import type { Decision } from '../src/shared/planner'
 
@@ -112,7 +112,7 @@ describe('deterministic planning', () => {
       ),
     ).toThrow('current setting')
   })
-  it('requires earlier deadlines to come before open-ended tasks', () => {
+  it('orders selected tasks by deadline before open-ended tasks', () => {
     const s = scenario(),
       openGoalId = randomUUID(),
       openTaskId = randomUUID()
@@ -125,21 +125,17 @@ describe('deterministic planning', () => {
       deadline: null,
       status: 'todo',
     })
-    expect(() =>
-      validateDecision(
-        s,
-        {
-          kind: 'propose_plan',
-          summary: 'Do both tasks.',
-          choices: [
-            { taskId: openTaskId, minutes: 15, reason: 'Make progress on DSA.' },
-            { taskId: s.tasks[0].id, minutes: 15, reason: 'Review for the exam.' },
-          ],
-          deferred: [],
-        },
-        now,
-      ),
-    ).toThrow('closest deadline')
+    const decision = orderPlanChoices(s, {
+      kind: 'propose_plan',
+      summary: 'Do both tasks.',
+      choices: [
+        { taskId: openTaskId, minutes: 15, reason: 'Make progress on DSA.' },
+        { taskId: s.tasks[0].id, minutes: 15, reason: 'Review for the exam.' },
+      ],
+      deferred: [],
+    })
+    expect(decision.kind).toBe('propose_plan')
+    if (decision.kind === 'propose_plan') expect(decision.choices[0].taskId).toBe(s.tasks[0].id)
   })
   it('repairs invalid output once and discards results if state changed', async () => {
     const s = scenario(),
