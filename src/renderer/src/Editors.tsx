@@ -74,6 +74,12 @@ export function ProfileEditor({
         cancelled: false,
       })
     }
+    if (imported.length === 0) {
+      setUploadError(
+        'No college hours are ready to save. Enter at least one weekday time or use manual entry.',
+      )
+      return
+    }
     setTimetable([
       ...timetable.filter((item) => item.date || item.title !== 'College'),
       ...imported,
@@ -176,9 +182,10 @@ export function ProfileEditor({
           Add recurring start and end times by weekday. dAIly reserves the whole interval as
           college.
         </p>
-        <div className="actions" role="group" aria-label="College schedule entry method">
+        <div className="schedule-methods" role="group" aria-label="College schedule entry method">
           <button
             type="button"
+            className={`schedule-method${method === 'manual' ? ' selected' : ''}`}
             aria-pressed={method === 'manual'}
             onClick={() => setMethod('manual')}
           >
@@ -186,6 +193,7 @@ export function ProfileEditor({
           </button>
           <button
             type="button"
+            className={`schedule-method${method === 'upload' ? ' selected' : ''}`}
             aria-pressed={method === 'upload'}
             onClick={() => setMethod('upload')}
           >
