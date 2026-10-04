@@ -57,5 +57,6 @@ export function schedule(state: Snapshot, decision: Extract<Decision, { kind: 'p
     slot.start = start + c.minutes * 60000; previousEnd = slot.start
   }
   for (const task of tasks.values()) if (!blocks.some(b => b.taskId === task.id) && !deferred.has(task.id)) deferred.set(task.id, { taskId: task.id, reason: 'Left outside this plan. Ask the mentor if you want to change the priorities.' })
-  return { id: randomUUID(), createdAt: new Date(now).toISOString(), contextRevision: state.revision, status: 'proposed', summary: decision.summary, blocks, deferred: [...deferred.values()] }
+  const summary = decision.choices.length && !blocks.length ? 'None of the suggested blocks fits your remaining availability. Stop here or ask for a smaller next step.' : decision.summary
+  return { id: randomUUID(), createdAt: new Date(now).toISOString(), contextRevision: state.revision, status: 'proposed', summary, blocks, deferred: [...deferred.values()] }
 }

@@ -10,12 +10,17 @@ import { MentorInput } from '../shared/planner'
 import { SessionActionSchema } from '../shared/session'
 import { Sessions } from './sessions'
 import { arrivalDue, LocalNotifications } from './notifications'
+import { resolve } from 'node:path'
+import { smoke } from './smoke'
+import { mkdirSync } from 'node:fs'
 
 let rendererUrl = ''
 let store: Store
 let sessions: Sessions
 let tray: Tray
 let quitting = false
+const smokeDirectory = process.argv.find(arg => arg.startsWith('--smoke-test='))?.slice('--smoke-test='.length)
+if (smokeDirectory) { app.disableHardwareAcceleration(); const path = resolve(smokeDirectory, 'user-data'); mkdirSync(path, { recursive: true }); app.setPath('userData', path) }
 const ollama = new OllamaClient()
 function publish(): void { for (const window of BrowserWindow.getAllWindows()) window.webContents.send('state:changed', store.snapshot()) }
 
@@ -26,6 +31,7 @@ function createWindow(): void {
     webPreferences: { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, nodeIntegration: false, sandbox: true }
   })
   window.once('ready-to-show', () => window.show())
+  if (smokeDirectory) window.webContents.once('did-finish-load', () => { void smoke(window, store, resolve(smokeDirectory)) })
   window.on('close', event => { if (!quitting) { event.preventDefault(); window.hide() } })
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', event => event.preventDefault())

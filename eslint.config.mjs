@@ -6,6 +6,7 @@ export default ts.config(
   { ignores: ['out/**', 'release/**', 'node_modules/**', 'coverage/**', 'artifacts/**'] },
   js.configs.recommended,
   ...ts.configs.recommended,
+  { files: ['scripts/*.mjs'], languageOptions: { globals: { process: 'readonly', console: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly' } } },
   { files: ['**/*.tsx'], plugins: { 'react-hooks': hooks }, rules: hooks.configs.recommended.rules },
   { rules: { '@typescript-eslint/no-explicit-any': 'error' } }
 )
