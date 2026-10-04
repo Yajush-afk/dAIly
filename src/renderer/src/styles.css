@@ -749,6 +749,14 @@ button {
   font-size: 12px;
   color: var(--muted);
 }
+.today-dashboard > .page-intro,
+.today-dashboard .section-heading {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+.today-dashboard > .page-intro {
+  align-items: center;
+}
 .next-action {
   padding-bottom: 4px;
 }
