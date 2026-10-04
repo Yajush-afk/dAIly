@@ -1,5 +1,6 @@
-import { mkdirSync, existsSync, unlinkSync, writeFileSync, readFileSync } from 'node:fs'
-import { resolve, join } from 'node:path'
+import { mkdirSync, existsSync, unlinkSync, writeFileSync, readFileSync, renameSync } from 'node:fs'
+import { resolve, join, dirname } from 'node:path'
+import Database from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
 import { DateTime } from 'luxon'
 import { Store } from '../src/main/store'
@@ -19,6 +20,56 @@ if (existsSync(owner)) {
     alive = (error as NodeJS.ErrnoException).code !== 'ESRCH'
   }
   if (alive) throw new Error('Quit the demo app from its tray before seeding or resetting a take.')
+}
+const argumentPath = (flag: string) => {
+  const index = process.argv.indexOf(flag)
+  if (index < 0) return null
+  const value = process.argv[index + 1]
+  if (!value || value.startsWith('--')) throw new Error(`${flag} requires a file path`)
+  return resolve(value)
+}
+const exportPath = argumentPath('--export'),
+  importPath = argumentPath('--import')
+if (exportPath && importPath) throw new Error('Export and import must be separate commands.')
+if (exportPath || importPath) {
+  const source = importPath ?? database,
+    destination = exportPath ?? database
+  if (source === destination) throw new Error('Choose a path outside the active demo database.')
+  if (!existsSync(source)) throw new Error(`Database not found: ${source}`)
+  if (existsSync(destination) && (!importPath || !process.argv.includes('--reset')))
+    throw new Error('Destination exists. For import, add --reset to replace the demo take.')
+  const sourceDb = new Database(source, { readonly: true, fileMustExist: true })
+  try {
+    if (sourceDb.pragma('integrity_check', { simple: true }) !== 'ok')
+      throw new Error('The source database failed its integrity check.')
+    const version = Number(sourceDb.pragma('user_version', { simple: true }))
+    if (
+      version < 1 ||
+      version > 4 ||
+      !sourceDb.prepare("SELECT value FROM metadata WHERE key = 'profile'").get()
+    )
+      throw new Error('This is not a supported dAIly database.')
+    mkdirSync(dirname(destination), { recursive: true })
+    // Backup includes committed WAL contents and produces a self-contained SQLite file.
+    const staging = destination + '.transfer'
+    if (existsSync(staging)) throw new Error(`Remove the leftover transfer file first: ${staging}`)
+    try {
+      await sourceDb.backup(staging)
+      if (importPath)
+        for (const suffix of ['', '-wal', '-shm']) {
+          if (existsSync(destination + suffix)) unlinkSync(destination + suffix)
+        }
+      renameSync(staging, destination)
+    } finally {
+      if (existsSync(staging)) unlinkSync(staging)
+    }
+  } finally {
+    sourceDb.close()
+  }
+  console.log(
+    `${importPath ? 'Imported demo database' : 'Exported portable database'}: ${destination}`,
+  )
+  process.exit(0)
 }
 mkdirSync(directory, { recursive: true })
 if (existsSync(database) && !process.argv.includes('--reset')) {

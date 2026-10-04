@@ -19,10 +19,10 @@ try {
   await run(process.execPath, [
     resolve('node_modules/tsx/dist/cli.mjs'),
     'scripts/seed-demo.mts',
-    ...(process.argv.includes('--reset') ? ['--reset'] : []),
+    ...process.argv.slice(2).filter((argument) => argument !== '--seed-only'),
   ])
 } finally {
   await run(process.execPath, [resolve('node_modules/electron-builder/cli.js'), 'install-app-deps'])
 }
-if (!process.argv.includes('--seed-only'))
+if (!process.argv.includes('--seed-only') && !process.argv.includes('--export'))
   await run('npm', ['run', 'dev'], { ...process.env, DAILY_DEMO_RECORDING: '1' })
