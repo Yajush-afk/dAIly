@@ -21,6 +21,19 @@ export const GoalDecisionSchema = z.discriminatedUnion('kind', [
     })
     .strict(),
 ])
+export function goalDecisionFormat(taskIds: string[]): unknown {
+  const bindIds = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(bindIds)
+    if (!value || typeof value !== 'object') return value
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        key === 'id' ? { enum: [...taskIds, null] } : bindIds(item),
+      ]),
+    )
+  }
+  return bindIds(z.toJSONSchema(GoalDecisionSchema))
+}
 export const GoalDiscussionInputSchema = z
   .object({ goalId: Id, text: z.string().trim().min(1).max(4000) })
   .strict()

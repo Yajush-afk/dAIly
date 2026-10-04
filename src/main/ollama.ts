@@ -106,6 +106,7 @@ export class OllamaClient {
   async chat(
     messages: ChatMessage[],
     format: unknown,
+    options: { maxTokens?: number } = {},
   ): Promise<{ content: string; durationMs: number; tokens: number }> {
     return this.request(async (signal) => {
       const started = performance.now()
@@ -122,7 +123,7 @@ export class OllamaClient {
           format,
           stream: false,
           keep_alive: '5m',
-          options: { num_ctx: 4096, num_predict: 384, temperature: 0.1 },
+          options: { num_ctx: 4096, num_predict: options.maxTokens ?? 384, temperature: 0.1 },
         }),
       })
       if (!response.ok)

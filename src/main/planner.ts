@@ -198,19 +198,66 @@ export class Planner {
     state: Snapshot,
     messages: ChatMessage[],
     format: unknown,
+    validate?: (answer: string) => void,
   ): Promise<string> {
     if (!state.goals.some((goal) => goal.id === input.goalId))
       throw new Error('This goal is no longer available.')
     if (!messages.at(-1)?.content.includes(input.text))
       throw new Error('Goal discussion context is incomplete.')
-    return this.modelDecision(messages, format)
+    return this.modelDecision(messages, format, { maxTokens: 1536, validate })
   }
-  async modelDecision(messages: ChatMessage[], format: unknown): Promise<string> {
+  async modelDecision(
+    messages: ChatMessage[],
+    format: unknown,
+    options: { maxTokens?: number; validate?: (answer: string) => void } = {},
+  ): Promise<string> {
     if (this.pending)
       throw new Error('A model request is already running. Wait or cancel it first.')
     this.pending = true
     try {
-      return (await this.model.chat(messages, format)).content
+      const request = [...messages]
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const answer = (await this.model.chat(request, format, options)).content
+        try {
+          options.validate?.(answer)
+          return answer
+        } catch (error) {
+          if (attempt === 1)
+            throw new Error(
+              'dAIly could not prepare a valid goal response. Your conversation and saved goal are intact. Try sending again.',
+            )
+          request.push({ role: 'assistant', content: answer.slice(0, 6000) })
+          let feedback = String(error)
+          if (error instanceof z.ZodError) {
+            const value: unknown = JSON.parse(answer)
+            feedback = error.issues
+              .map((issue) => {
+                const received = issue.path.reduce<unknown>((current, key) => {
+                  if (!current || typeof current !== 'object') return undefined
+                  return Reflect.get(current, key)
+                }, value)
+                const date =
+                  typeof received === 'string' ? received.match(/^(\d{4})-(\d{2})-(\d{2})$/) : null
+                let detail = issue.message
+                if (issue.code === 'invalid_format' && issue.format === 'date' && date) {
+                  const year = Number(date[1]),
+                    month = Number(date[2])
+                  if (month >= 1 && month <= 12) {
+                    const days = new Date(Date.UTC(year, month, 0)).getUTCDate()
+                    detail = `${received} is not a real calendar date. ${date[1]}-${date[2]} has only ${days} days. Choose a valid day.`
+                  }
+                }
+                return `${issue.path.join('.')}: ${detail}; received ${JSON.stringify(received)}`
+              })
+              .join('\n')
+          }
+          request.push({
+            role: 'user',
+            content: `Your previous response was invalid: ${feedback.slice(0, 1200)}. Correct the response above and return a complete JSON object matching the schema, with double-quoted keys and no trailing commas. Dates must be real calendar dates in YYYY-MM-DD format. Keep all valid topics and their supplied IDs. Keep the explanation under three sentences. The user has not seen the failed response; explain only the final recommendation without mentioning errors, validation, retries, or apologizing. If you proposed a roadmap, repair it rather than switching to a discuss response to avoid validation. When the user delegates the recommendation, suggest an order rather than asking them for percentages.`,
+          })
+        }
+      }
+      throw new Error('No model response was produced.')
     } finally {
       this.pending = false
     }
