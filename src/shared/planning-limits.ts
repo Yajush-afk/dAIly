@@ -1,6 +1,6 @@
 export const planningLimits = {
   minimumBlockMinutes: 5,
-  maximumBlockMinutes: 120,
+  maximumBlockMinutes: 180,
   lowEnergyMinutes: 20,
   maximumChoices: 2,
   maximumAttempts: 2,

@@ -24,7 +24,7 @@ import { Sessions } from './sessions'
 import { arrivalDue, LocalNotifications } from './notifications'
 import { resolve } from 'node:path'
 import { smoke } from './smoke'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs'
 import { writeFile, rename, unlink, readFile, stat } from 'node:fs/promises'
 import { serializeExport } from './export'
 import { DayApplication } from './application'
@@ -50,6 +50,11 @@ if (smokeDirectory) {
   const path = resolve(smokeDirectory, 'user-data')
   mkdirSync(path, { recursive: true })
   app.setPath('userData', path)
+}
+if (!app.isPackaged && process.env.DAILY_DEMO_RECORDING === '1' && !smokeDirectory) {
+  const demoPath = resolve('artifacts/demo-recording/user-data')
+  mkdirSync(demoPath, { recursive: true })
+  app.setPath('userData', demoPath)
 }
 const ollama = new OllamaClient()
 let published: Snapshot | undefined
@@ -135,6 +140,17 @@ else app.on('second-instance', openWindow)
 app
   .whenReady()
   .then(() => {
+    if (!app.isPackaged && process.env.DAILY_DEMO_RECORDING === '1') {
+      const owner = join(app.getPath('userData'), 'demo-process.json')
+      writeFileSync(owner, JSON.stringify({ pid: process.pid }))
+      app.on('will-quit', () => {
+        try {
+          unlinkSync(owner)
+        } catch {
+          /* A crashed demo can leave a stale owner marker. */
+        }
+      })
+    }
     store = new Store(join(app.getPath('userData'), 'daily.db'))
     sessions = new Sessions(store)
     sessions.recover()
