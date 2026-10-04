@@ -95,4 +95,28 @@ export function validateDecision(state: Snapshot, decision: Decision, now: numbe
     decision.tasks.some((t) => !state.goals.some((g) => g.id === t.goalId))
   )
     throw new Error('Suggested task has an unknown goal')
+  if (decision.kind === 'propose_changes') {
+    const normalize = (title: string): string =>
+      title
+        .toLocaleLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim()
+    if (
+      decision.tasks.some((suggested) =>
+        state.tasks.some(
+          (task) =>
+            task.goalId === suggested.goalId &&
+            normalize(task.title) === normalize(suggested.title),
+        ),
+      )
+    )
+      throw new Error('Suggested tasks must be distinct from existing tasks, not renamed copies.')
+    if (
+      (decision.preferences.focusMinutes !== undefined &&
+        decision.preferences.focusMinutes === state.profile.focusMinutes) ||
+      (decision.preferences.breakMinutes !== undefined &&
+        decision.preferences.breakMinutes === state.profile.breakMinutes)
+    )
+      throw new Error('Suggested preferences must change the current setting.')
+  }
 }

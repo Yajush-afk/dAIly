@@ -75,5 +75,5 @@ export interface MentorResult {
   planId?: string
   revision: number
   durationMs: number
-  origin?: 'gemma' | 'availability' | 'missing_tasks'
+  origin?: 'gemma' | 'availability' | 'missing_tasks' | 'guardrail'
 }

@@ -191,6 +191,45 @@ describe('planner harness edge cases', () => {
     )
     store.close()
   })
+  it('asks a grounded question after repeated obstacles instead of returning generic advice', async () => {
+    const { store, now, taskId } = setup()
+    for (let index = 1; index <= 3; index++)
+      store.put('sessions', {
+        id: randomUUID(),
+        taskId,
+        blockId: null,
+        startedAt: new Date(now - index * 86400000).toISOString(),
+        segmentStartedAt: null,
+        targetMinutes: 30,
+        elapsedSeconds: 300,
+        state: 'finished',
+        outcome: 'interrupted',
+        work: 'Read the problem only.',
+        interruption: 'I could not decide how to start.',
+        finishedAt: new Date(now - index * 86400000 + 300000).toISOString(),
+        needsReconciliation: false,
+      })
+    const planner = new Planner(
+      store,
+      {
+        chat: async () => ({
+          content: JSON.stringify({ kind: 'respond', explanation: 'Try again tomorrow.' }),
+          durationMs: 1,
+          tokens: 1,
+        }),
+      },
+      () => now,
+    )
+    const result = await planner.request('Help me plan the evening.')
+    expect(result.origin).toBe('guardrail')
+    expect(result.decision.kind).toBe('ask_question')
+    if (result.decision.kind === 'ask_question') {
+      expect(result.decision.question).toContain('Revise a topic')
+      expect(result.decision.question).toContain('I could not decide how to start.')
+    }
+    expect(store.snapshot().plans).toEqual([])
+    store.close()
+  })
   it('rejects model attempts to claim completed work as part of a plan', async () => {
     const { store, now, taskId } = setup()
     const planner = new Planner(

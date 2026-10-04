@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { Store } from '../src/main/store'
 import { Planner } from '../src/main/planner'
 import { availableIntervals, schedule } from '../src/main/scheduler'
+import { validateDecision } from '../src/main/policy'
 import { defaultProfile, type Snapshot } from '../src/shared/state'
 import type { Decision } from '../src/shared/planner'
 
@@ -83,6 +84,33 @@ describe('deterministic planning', () => {
         now,
       ),
     ).toThrow('unknown')
+  })
+  it('rejects renamed copies and no-op preference suggestions', () => {
+    const s = scenario()
+    expect(() =>
+      validateDecision(
+        s,
+        {
+          kind: 'propose_changes',
+          explanation: 'Try a smaller step.',
+          tasks: [{ goalId: s.goals[0].id, title: 'revise graphs!', estimateMinutes: 15 }],
+          preferences: {},
+        },
+        now,
+      ),
+    ).toThrow('renamed copies')
+    expect(() =>
+      validateDecision(
+        s,
+        {
+          kind: 'propose_changes',
+          explanation: 'Adjust the focus preference.',
+          tasks: [],
+          preferences: { focusMinutes: s.profile.focusMinutes },
+        },
+        now,
+      ),
+    ).toThrow('current setting')
   })
   it('repairs invalid output once and discards results if state changed', async () => {
     const s = scenario(),
