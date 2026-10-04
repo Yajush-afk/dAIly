@@ -1,7 +1,8 @@
 # Run from PowerShell as your regular desktop user. Default: isolated demo.
-param([switch]$Normal)
+param([switch]$Normal, [switch]$SeedOnly, [switch]$Reset)
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
+if ($Normal -and ($SeedOnly -or $Reset)) { throw 'SeedOnly and Reset apply only to the isolated demo database.' }
 function Invoke-Checked {
   param([string]$Command, [string[]]$Arguments)
   & $Command @Arguments
@@ -23,28 +24,35 @@ if (!$node -or (& node -p 'process.versions.node.split(".")[0]') -ne '24') {
   Expand-Archive $download -DestinationPath 'artifacts/bootstrap' -Force
   $env:Path = "$(Join-Path $PSScriptRoot ('artifacts/bootstrap/' + $archive.Replace('.zip', '')));$env:Path"
 }
-$ollamaDirectory = Join-Path $env:LOCALAPPDATA 'Programs/Ollama'
-$env:Path = "$ollamaDirectory;$env:Path"
-if (!(Get-Command ollama -ErrorAction SilentlyContinue)) {
-  $installer = Join-Path $PSScriptRoot 'artifacts/bootstrap/OllamaSetup.exe'
-  Invoke-WebRequest 'https://ollama.com/download/OllamaSetup.exe' -OutFile $installer -UseBasicParsing
-  $installation = Start-Process $installer -ArgumentList '/VERYSILENT', '/NORESTART' -Wait -PassThru
-  if ($installation.ExitCode -ne 0) { throw "Ollama installation failed: $($installation.ExitCode)" }
-  if (!(Get-Command ollama -ErrorAction SilentlyContinue)) { throw 'Ollama was installed but is unavailable. Restart PowerShell and retry.' }
-}
-function Test-Ollama {
-  try { Invoke-RestMethod 'http://127.0.0.1:11434/api/tags' -TimeoutSec 2 | Out-Null; return $true }
-  catch { return $false }
-}
-if (!(Test-Ollama)) {
-  Start-Process (Get-Command ollama).Source -ArgumentList 'serve' -WindowStyle Hidden
-  for ($attempt = 0; $attempt -lt 60; $attempt++) {
-    if (Test-Ollama) { break }
-    Start-Sleep -Seconds 1
+if (!$SeedOnly) {
+  $ollamaDirectory = Join-Path $env:LOCALAPPDATA 'Programs/Ollama'
+  $env:Path = "$ollamaDirectory;$env:Path"
+  if (!(Get-Command ollama -ErrorAction SilentlyContinue)) {
+    $installer = Join-Path $PSScriptRoot 'artifacts/bootstrap/OllamaSetup.exe'
+    Invoke-WebRequest 'https://ollama.com/download/OllamaSetup.exe' -OutFile $installer -UseBasicParsing
+    $installation = Start-Process $installer -ArgumentList '/VERYSILENT', '/NORESTART' -Wait -PassThru
+    if ($installation.ExitCode -ne 0) { throw "Ollama installation failed: $($installation.ExitCode)" }
+    if (!(Get-Command ollama -ErrorAction SilentlyContinue)) { throw 'Ollama was installed but is unavailable. Restart PowerShell and retry.' }
   }
-  if (!(Test-Ollama)) { throw 'Ollama did not start. Open Ollama and run this script again.' }
+  function Test-Ollama {
+    try { Invoke-RestMethod 'http://127.0.0.1:11434/api/tags' -TimeoutSec 2 | Out-Null; return $true }
+    catch { return $false }
+  }
+  if (!(Test-Ollama)) {
+    Start-Process (Get-Command ollama).Source -ArgumentList 'serve' -WindowStyle Hidden
+    for ($attempt = 0; $attempt -lt 60; $attempt++) {
+      if (Test-Ollama) { break }
+      Start-Sleep -Seconds 1
+    }
+    if (!(Test-Ollama)) { throw 'Ollama did not start. Open Ollama and run this script again.' }
+  }
 }
 Invoke-Checked -Command 'npm.cmd' -Arguments @('ci')
-Invoke-Checked -Command 'ollama' -Arguments @('pull', 'gemma3:4b-it-q4_K_M')
+if (!$SeedOnly) { Invoke-Checked -Command 'ollama' -Arguments @('pull', 'gemma3:4b-it-q4_K_M') }
 if ($Normal) { Invoke-Checked -Command 'npm.cmd' -Arguments @('run', 'dev') }
-else { Invoke-Checked -Command 'npm.cmd' -Arguments @('run', 'demo') }
+else {
+  $demoArguments = @('run', 'demo', '--')
+  if ($Reset) { $demoArguments += '--reset' }
+  if ($SeedOnly) { $demoArguments += '--seed-only' }
+  Invoke-Checked -Command 'npm.cmd' -Arguments $demoArguments
+}
