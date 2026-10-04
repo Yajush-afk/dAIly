@@ -149,7 +149,15 @@ for (let iteration = 0; iteration < repeats; iteration++)
             result.decision.choices.filter((c) => c.taskId === dsaTask).length > 0 &&
             result.decision.choices
               .filter((c) => c.taskId === dsaTask)
-              .every((c) => c.minutes < 30)),
+              .every((c) => c.minutes < 30)) ||
+          (result.decision.kind === 'propose_changes' &&
+            result.decision.tasks.some(
+              (task) =>
+                task.goalId === dsa &&
+                task.estimateMinutes <
+                  (store.snapshot().tasks.find((item) => item.id === dsaTask)?.estimateMinutes ||
+                    0),
+            )),
       }
       const ps = await fetch('http://127.0.0.1:11434/api/ps').then((r) => r.json())
       reports.push({
