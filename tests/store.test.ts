@@ -18,7 +18,7 @@ describe('local records', () => {
     const { path, config } = fixture()
     const first = new Store(path)
     first.saveConfig(config)
-    expect(first.db.pragma('user_version', { simple: true })).toBe(1)
+    expect(first.db.pragma('user_version', { simple: true })).toBe(2)
     first.close()
     const reopened = new Store(path)
     expect(reopened.snapshot().tasks).toEqual(config.tasks)

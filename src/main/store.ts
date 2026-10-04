@@ -7,11 +7,12 @@ export class Store {
     this.db = new Database(path)
     this.db.pragma('journal_mode = WAL')
     const version = this.db.pragma('user_version', { simple: true }) as number
-    if (version > 1) throw new Error('This database belongs to a newer dAIly version')
+    if (version > 2) throw new Error('This database belongs to a newer dAIly version')
     if (version < 1) this.db.transaction(() => {
       this.db.exec('CREATE TABLE records (kind TEXT NOT NULL, id TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(kind, id)); CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL); PRAGMA user_version = 1;')
       this.db.prepare('INSERT INTO metadata VALUES (?, ?)').run('revision', '0')
     })()
+    if (version < 2) this.db.transaction(() => { this.db.exec('CREATE TABLE notifications (key TEXT PRIMARY KEY, sent_at TEXT NOT NULL); PRAGMA user_version = 2;') })()
     if (!this.db.prepare('SELECT value FROM metadata WHERE key = ?').get('profile')) this.db.prepare('INSERT INTO metadata VALUES (?, ?)').run('profile', JSON.stringify(defaultProfile))
   }
   get revision(): number { return Number((this.db.prepare('SELECT value FROM metadata WHERE key = ?').get('revision') as { value: string }).value) }
