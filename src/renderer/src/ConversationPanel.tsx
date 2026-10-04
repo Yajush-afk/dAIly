@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, ArrowDown, Flag, CalendarDays } from 'lucide-react'
 import type { Snapshot } from '../../shared/state'
 import { useWorkspace, friendlyError } from './WorkspaceContext'
+import { TemporaryTaskProposal } from './TemporaryTaskProposal'
 import { GoalDiscussion } from './GoalDiscussion'
 import { PlanProposal } from './TodayDashboard'
 import { Button } from './components/ui/button'
@@ -230,6 +231,7 @@ export function ConversationPanel({
         <ConversationMessages state={state} />
         <div className="conversation-proposals">
           {proposal && <PlanProposal plan={proposal} state={state} />}
+          <TemporaryTaskProposal />
           <TaskChangeProposal />
         </div>
         {workspace.busy && (

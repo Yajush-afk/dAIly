@@ -110,6 +110,67 @@ describe('refined daily workspace', () => {
       'How should I approach recursion?',
     )
   })
+  it('reviews temporary work without placing it in the Goals workspace', async () => {
+    const state = fixture(),
+      decisionId = randomUUID()
+    const tasks = [
+      {
+        title: 'Finish assignment',
+        estimateMinutes: 60,
+        deadline: '2026-10-05',
+        sourceQuote: 'An assignment takes an hour.',
+      },
+    ]
+    state.messages = [
+      {
+        id: decisionId,
+        at: new Date().toISOString(),
+        role: 'mentor',
+        channel: 'day',
+        text: 'Add the assignment before planning?',
+        details: {
+          type: 'decision',
+          payload: JSON.stringify({
+            decision: {
+              kind: 'propose_temporary_tasks',
+              explanation: 'Add the assignment?',
+              tasks,
+              until: new Date(Date.now() + 3600000).toISOString(),
+            },
+            inputRevision: 0,
+          }),
+        },
+      },
+    ]
+    bridge(state)
+    const review = vi.fn().mockResolvedValue({ state })
+    window.dAIly!.reviewTemporaryTasks = review
+    render(<App />)
+    const user = userEvent.setup()
+    await screen.findByRole('heading', { name: 'Temporary work for this plan' })
+    expect(review).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Add to plan and review schedule' }))
+    expect(review).toHaveBeenCalledWith({ decisionId, action: 'accept', tasks })
+    await user.click(screen.getByRole('button', { name: 'Goals' }))
+    await user.click(screen.getByRole('button', { name: 'Open goal: DSA' }))
+    expect(
+      screen.queryByRole('button', { name: 'Open goal: Finish assignment' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'DSA' })).toBeInTheDocument()
+  })
+  it('requires confirmation before clearing the current plan', async () => {
+    const state = fixture()
+    bridge(state)
+    const clear = vi.fn().mockResolvedValue({ ...state, plans: [] })
+    window.dAIly!.clearPlan = clear
+    render(<App />)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Clear plan' }))
+    expect(clear).not.toHaveBeenCalled()
+    const dialog = screen.getByRole('alertdialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Clear plan' }))
+    expect(clear).toHaveBeenCalledTimes(1)
+  })
   it('orders priority goals deterministically without pretending priorities are deadlines', () => {
     const base = fixture().goals[0]
     const goals = [

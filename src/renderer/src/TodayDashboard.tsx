@@ -18,6 +18,17 @@ import {
   DialogTitle,
   DialogDescription,
 } from './components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from './components/ui/alert-dialog'
 import { explicitSubmit } from './Inputs'
 
 export function CheckInForm({ state, close }: { state: Snapshot; close: () => void }) {
@@ -133,6 +144,21 @@ export function PlanProposal({ plan, state }: { plan: Plan; state: Snapshot }) {
     <section className="plan-proposal">
       <h3>A plan for your evening</h3>
       <p>{plan.summary}</p>
+      {!!plan.temporaryTasks?.length && (
+        <ul className="temporary-plan-work">
+          {plan.temporaryTasks
+            .filter((task) => task.status !== 'done')
+            .map((task) => (
+              <li key={task.id}>
+                <strong>{task.title}</strong>
+                <span>
+                  Temporary work · {task.estimateMinutes} min estimated total effort
+                  {task.deadline ? ` · due ${task.deadline}` : ''}
+                </span>
+              </li>
+            ))}
+        </ul>
+      )}
       <ol>
         {plan.blocks.map((block) => (
           <li key={block.id}>
@@ -158,7 +184,7 @@ export function PlanProposal({ plan, state }: { plan: Plan; state: Snapshot }) {
       )}
       <div className="actions">
         <Button
-          disabled={saving || stale}
+          disabled={saving || stale || !plan.blocks.some((block) => block.kind === 'focus')}
           onClick={async () => {
             if (!window.dAIly || saving) return
             setSaving(true)
@@ -286,6 +312,64 @@ export function NextAction({
     </section>
   )
 }
+export function ClearPlanButton({ state }: { state: Snapshot }) {
+  const workspace = useWorkspace(),
+    [saving, setSaving] = useState(false),
+    [open, setOpen] = useState(false),
+    [error, setError] = useState('')
+  const active = state.sessions.some((session) => session.state !== 'finished')
+  if (!state.plans.some((plan) => plan.status !== 'superseded')) return null
+  return (
+    <>
+      <AlertDialog open={open} onOpenChange={setOpen}>
+        <AlertDialogTrigger asChild>
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={workspace.busy || saving || active}
+            title={active ? 'Save the active session outcome first.' : undefined}
+          >
+            Clear plan
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear the current plan?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the schedule and its temporary work from your day. Your goals and
+              recorded sessions stay saved.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Keep plan</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              disabled={saving}
+              onClick={async (event) => {
+                event.preventDefault()
+                if (!window.dAIly || saving) return
+                setSaving(true)
+                try {
+                  const updated = await window.dAIly.clearPlan()
+                  workspace.receive({ state: updated })
+                  setOpen(false)
+                } catch (reason) {
+                  setError(friendlyError(reason))
+                } finally {
+                  setSaving(false)
+                }
+              }}
+            >
+              Clear plan
+            </AlertDialogAction>
+          </AlertDialogFooter>
+          {error && <p role="alert">{error}</p>}
+        </AlertDialogContent>
+      </AlertDialog>
+      {active && <span className="muted">Save the session outcome before clearing.</span>}
+    </>
+  )
+}
 export function DayTimeline({ state, plan }: { state: Snapshot; plan?: Plan }) {
   const now = useClock(),
     today = DateTime.fromMillis(now, { zone: state.profile.timezone }),
@@ -323,6 +407,7 @@ export function DayTimeline({ state, plan }: { state: Snapshot; plan?: Plan }) {
     <section className="dashboard-section">
       <div className="section-heading">
         <h3>Your day</h3>
+        <ClearPlanButton state={state} />
         <span>{today.toFormat('ccc, d LLL')}</span>
       </div>
       <p className="muted">
@@ -482,13 +567,22 @@ export function TodayDashboard({
   const now = useClock(),
     [checkIn, setCheckIn] = useState(false)
   const today = DateTime.fromMillis(now, { zone: state.profile.timezone })
+  const planningDate = (at: DateTime) =>
+    (state.profile.bedtime < state.profile.wakeTime && at.toFormat('HH:mm') < state.profile.wakeTime
+      ? at.minus({ days: 1 })
+      : at
+    ).toISODate()
   const plan = [...state.plans]
     .reverse()
     .find(
       (p) =>
         p.status !== 'superseded' &&
-        p.blocks.some((b) => Date.parse(b.end) > now) &&
-        DateTime.fromISO(p.createdAt, { zone: state.profile.timezone }).hasSame(today, 'day'),
+        (p.blocks.some((b) => Date.parse(b.end) > now) ||
+          p.temporaryTasks?.some(
+            (task) => task.temporaryUntil && Date.parse(task.temporaryUntil) > now,
+          )) &&
+        planningDate(DateTime.fromISO(p.createdAt, { zone: state.profile.timezone })) ===
+          planningDate(today),
     )
   return (
     <div className="today-dashboard">
