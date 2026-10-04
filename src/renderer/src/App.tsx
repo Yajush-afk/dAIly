@@ -3,6 +3,7 @@ import { defaultProfile, type Config, type Snapshot } from '../../shared/state'
 import { configFrom, GoalsEditor, ProfileEditor } from './Editors'
 import { ModelSetup } from './ModelSetup'
 import { Today } from './Today'
+import { History } from './History'
 
 export type Page = 'Today' | 'Goals' | 'History' | 'Settings'
 export type Theme = 'system' | 'light' | 'dark'
@@ -41,7 +42,7 @@ export default function App(): React.JSX.Element {
         {page === 'Today' && !state.profile.onboardingComplete && <ProfileEditor key={`onboard-${state.revision}`} state={state} save={save} busy={busy} />}
         {page === 'Today' && state.profile.onboardingComplete && <Today state={state} save={save} />}
         {page === 'Goals' && <GoalsEditor key={`goals-${state.revision}`} state={state} save={save} busy={busy} />}
-        {page === 'History' && <section className="empty-state"><h2>A record of what happened</h2><p>Completed and interrupted sessions will appear here. There is nothing to catch up on yet.</p></section>}
+        {page === 'History' && <History state={state} />}
         {page === 'Settings' && <><section><h2>Appearance</h2><label className="setting-row">Theme<select value={theme} onChange={event => { const next = event.target.value as Theme; setTheme(next); if (window.dAIly) void save({ ...configFrom(state), profile: { ...state.profile, theme: next } }) }}><option value="system">Follow system</option><option value="light">Light</option><option value="dark">Dark</option></select></label></section><ModelSetup /><section><ProfileEditor key={`profile-${state.revision}`} state={state} save={save} busy={busy} /></section></>}
       </div>
     </main>

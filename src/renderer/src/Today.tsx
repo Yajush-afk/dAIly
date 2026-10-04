@@ -4,6 +4,7 @@ import type { Config, Snapshot } from '../../shared/state'
 import type { MentorResult } from '../../shared/planner'
 import { configFrom } from './Editors'
 import { useClock } from './useClock'
+import { FocusSession } from './FocusSession'
 
 export function Today({ state, save }: { state: Snapshot; save: (config: Config) => Promise<void> }): React.JSX.Element {
   const [note, setNote] = useState('')
@@ -17,6 +18,7 @@ export function Today({ state, save }: { state: Snapshot; save: (config: Config)
   const [drafts, setDrafts] = useState<{ goalId: string; title: string; estimateMinutes: number }[]>([])
   const [conversation, setConversation] = useState(false)
   const now = useClock()
+  const active = state.sessions.find(s => s.state !== 'finished')
   const plan = [...state.plans].reverse().find(p => p.status === 'proposed') || [...state.plans].reverse().find(p => p.status === 'accepted')
   const time = (iso: string): string => DateTime.fromISO(iso, { zone: state.profile.timezone }).toFormat('h:mm a')
   async function ask(text: string, checkIn: boolean): Promise<void> {
@@ -51,10 +53,12 @@ export function Today({ state, save }: { state: Snapshot; save: (config: Config)
   const next = plan?.blocks.find(b => b.kind === 'focus' && Date.parse(b.end) > now && !state.sessions.some(s => s.blockId === b.id && s.state === 'finished'))
   return <>
     {error && <p className="error" role="alert">{error}</p>}
+    {active && <FocusSession key={`${active.id}-${active.state}-${active.needsReconciliation}`} session={active} state={state} onRecorded={() => ask('I saved my actual session outcome. Reconsider the remaining day using that outcome, and ask about an obstacle if the same task keeps being deferred.', false)} />}
     {plan ? <section>
       <p className="notice">{plan.summary}</p>
       {next ? <div className="next-block"><h2>{next.title}</h2><p>{Math.round((Date.parse(next.end) - Date.parse(next.start)) / 60000)} minutes · {time(next.start)}</p><p className="muted">{next.reason}</p></div> : <p>No more focus blocks in this plan. You can stop here or ask for a smaller next step.</p>}
       {plan.status === 'proposed' && <div className="actions"><button className="primary" onClick={() => void accept()}>Accept plan</button><button onClick={() => { setNote('Please adjust this plan: '); document.getElementById('day-update')?.focus() }}>Adjust plan</button></div>}
+      {plan.status === 'accepted' && next && !active && <button className="primary" disabled={now < Date.parse(next.start) - 60000} onClick={() => { void window.dAIly?.sessionAction({ action: 'start', blockId: next.id }).catch(reason => setError(String(reason))) }}>Start focus session</button>}
       <h2>{plan.status === 'proposed' ? 'Suggested evening' : 'Your plan'}</h2>
       <ol className="timeline">{plan.blocks.map(block => <li key={block.id}><span className="muted">{time(block.start)}</span><div>{block.title}<small>{time(block.end)} · {block.reason}</small></div></li>)}</ol>
       {!!plan.deferred.length && <details><summary>Left for another day ({plan.deferred.length})</summary><ul className="plain-list">{plan.deferred.map(d => <li key={d.taskId}>{state.tasks.find(t => t.id === d.taskId)?.title || 'Removed task'}<small>{d.reason}</small></li>)}</ul></details>}
