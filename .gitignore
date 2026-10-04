@@ -1,0 +1,15 @@
+node_modules/
+out/
+dist/
+release/
+coverage/
+.env*
+!.env.example
+*.db
+*.db-*
+*.sqlite*
+*.log
+*.gguf
+models/
+.DS_Store
+artifacts/
