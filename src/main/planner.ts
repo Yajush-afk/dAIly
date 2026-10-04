@@ -202,7 +202,26 @@ export class Planner {
   ): Promise<string> {
     if (!state.goals.some((goal) => goal.id === input.goalId))
       throw new Error('This goal is no longer available.')
-    if (!messages.at(-1)?.content.includes(input.text))
+    // Compare decoded fields. JSON escapes quotes, newlines, and backslashes,
+    // so searching the serialized envelope for the original text is unreliable.
+    const lastMessage = messages.at(-1)
+    const context = z
+      .object({ goal: z.object({ id: z.string() }), currentRequest: z.string() })
+      .safeParse(
+        (() => {
+          try {
+            return JSON.parse(lastMessage?.content || '') as unknown
+          } catch {
+            return undefined
+          }
+        })(),
+      )
+    if (
+      lastMessage?.role !== 'user' ||
+      !context.success ||
+      context.data.currentRequest !== input.text ||
+      context.data.goal.id !== input.goalId
+    )
       throw new Error('Goal discussion context is incomplete.')
     return this.modelDecision(messages, format, { maxTokens: 1536, validate })
   }

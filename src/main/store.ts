@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import Database from 'better-sqlite3'
 import {
   ConfigSchema,
@@ -11,7 +12,7 @@ import {
   type FocusSession,
 } from '../shared/state'
 import { decisionConstraints } from './policy'
-import type { HistoryPage, HistoryQuery } from '../shared/history'
+import type { HistoryPage, HistoryQuery, DashboardSummary } from '../shared/history'
 
 const planningProfile = (p: Profile) => ({
   name: p.name,
@@ -28,6 +29,9 @@ export class Store {
   constructor(path: string) {
     this.db = new Database(path)
     this.db.pragma('journal_mode = WAL')
+    this.db.function('daily_date', { deterministic: true }, (at, zone) =>
+      DateTime.fromISO(String(at), { zone: String(zone) }).toISODate(),
+    )
     const version = this.db.pragma('user_version', { simple: true }) as number
     if (version > 4) {
       this.db.close()
@@ -223,37 +227,82 @@ export class Store {
     }
   }
   history(query: HistoryQuery): HistoryPage {
+    const sessionDate =
+      "COALESCE(json_extract(value, '$.finishedAt'), json_extract(value, '$.startedAt'))"
+    const range = (expression: string): string =>
+      `${query.from ? ` AND ${expression} >= @from` : ''}${query.until ? ` AND ${expression} < @until` : ''}`
+    const parameters = {
+      ...(query.from ? { from: query.from } : {}),
+      ...(query.until ? { until: query.until } : {}),
+    }
     const suffix =
       query.kind === 'sessions' ? "AND json_extract(value, '$.state') = 'finished'" : ''
     const rows = this.db
       .prepare(
-        `SELECT rowid AS cursor, value FROM records WHERE kind = ? ${suffix} AND rowid < ? ORDER BY rowid DESC LIMIT ?`,
+        `SELECT rowid AS cursor, value FROM records WHERE kind = @kind ${suffix}${range(query.kind === 'sessions' ? sessionDate : "json_extract(value, '$.createdAt')")} AND rowid < @before ORDER BY rowid DESC LIMIT @limit`,
       )
-      .all(query.kind, query.before ?? Number.MAX_SAFE_INTEGER, query.limit + 1) as {
-      cursor: number
-      value: string
-    }[]
+      .all({
+        ...parameters,
+        kind: query.kind,
+        before: query.before ?? Number.MAX_SAFE_INTEGER,
+        limit: query.limit + 1,
+      }) as { cursor: number; value: string }[]
     const page = rows.slice(0, query.limit)
     const values = page.map((row) => schemas[query.kind].parse(JSON.parse(row.value)))
+    const filter = `kind = 'sessions' AND json_extract(value, '$.state') = 'finished'${range(sessionDate)}`
     const totals = this.db
       .prepare(
-        "SELECT COUNT(*) AS sessions, COALESCE(SUM(json_extract(value, '$.elapsedSeconds')), 0) AS seconds FROM records WHERE kind = 'sessions' AND json_extract(value, '$.state') = 'finished'",
+        `SELECT COUNT(*) AS sessions, COALESCE(SUM(json_extract(value, '$.elapsedSeconds')), 0) AS seconds FROM records WHERE ${filter}`,
       )
-      .get() as { sessions: number; seconds: number }
-    const byGoal =
-      query.kind === 'sessions'
-        ? (this.db
-            .prepare(
-              "SELECT json_extract(task.value,'$.goalId') AS goalId, COUNT(*) AS sessions, COALESCE(SUM(json_extract(session.value,'$.elapsedSeconds')),0) AS seconds FROM records session LEFT JOIN records task ON task.kind='tasks' AND task.id=json_extract(session.value,'$.taskId') WHERE session.kind='sessions' AND json_extract(session.value,'$.state')='finished' AND json_extract(task.value,'$.goalId') IS NOT NULL GROUP BY json_extract(task.value,'$.goalId') ORDER BY seconds DESC",
-            )
-            .all() as { goalId: string; sessions: number; seconds: number }[])
-        : []
+      .get(parameters) as { sessions: number; seconds: number }
+    const byGoal = this.db
+      .prepare(
+        `SELECT CASE WHEN goal.id IS NULL THEN NULL ELSE json_extract(task.value, '$.goalId') END AS goalId, COUNT(*) AS sessions, COALESCE(SUM(json_extract(session.value, '$.elapsedSeconds')), 0) AS seconds FROM records session LEFT JOIN records task ON task.kind = 'tasks' AND task.id = json_extract(session.value, '$.taskId') LEFT JOIN records goal ON goal.kind = 'goals' AND goal.id = json_extract(task.value, '$.goalId') WHERE session.kind = 'sessions' AND json_extract(session.value, '$.state') = 'finished'${range("COALESCE(json_extract(session.value, '$.finishedAt'), json_extract(session.value, '$.startedAt'))")} GROUP BY goalId ORDER BY seconds DESC`,
+      )
+      .all(parameters) as HistoryPage['totals']['byGoal']
+    const byDay = this.db
+      .prepare(
+        `SELECT daily_date(${sessionDate}, @zone) AS date, COUNT(*) AS sessions, COALESCE(SUM(json_extract(value, '$.elapsedSeconds')), 0) AS seconds FROM records WHERE ${filter} GROUP BY date ORDER BY date`,
+      )
+      .all({
+        ...parameters,
+        zone: this.config().profile.timezone,
+      }) as HistoryPage['totals']['byDay']
     return {
       kind: query.kind,
       sessions: query.kind === 'sessions' ? (values as Snapshot['sessions']) : [],
       plans: query.kind === 'plans' ? (values as Snapshot['plans']) : [],
       next: rows.length > query.limit ? page.at(-1)!.cursor : null,
-      totals: { ...totals, byGoal },
+      totals: {
+        ...totals,
+        byGoal,
+        byDay,
+      },
+    }
+  }
+  dashboardSummary(now = Date.now()): DashboardSummary {
+    const today = DateTime.fromMillis(now, { zone: this.config().profile.timezone }).startOf('day')
+    const yesterday = today.minus({ days: 1 })
+    const history = this.history({
+      kind: 'sessions',
+      from: yesterday.toUTC().toISO()!,
+      until: today.toUTC().toISO()!,
+      limit: 3,
+    })
+    const pending = this.db
+      .prepare(
+        "SELECT COUNT(*) AS count FROM records WHERE kind = 'sessions' AND json_extract(value, '$.state') = 'awaiting-outcome'",
+      )
+      .get() as { count: number }
+    return {
+      date: today.toISODate()!,
+      yesterday: {
+        date: yesterday.toISODate()!,
+        sessions: history.totals.sessions,
+        seconds: history.totals.seconds,
+        recentWork: history.sessions,
+      },
+      pendingOutcomes: pending.count,
     }
   }
   put<K extends RecordKind>(kind: K, value: Snapshot[K][number]): void {

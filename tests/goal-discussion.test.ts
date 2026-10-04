@@ -42,6 +42,84 @@ function fixture() {
 }
 const response = (content: string) => ({ content, durationMs: 1, tokens: 1 })
 describe('goal response recovery', () => {
+  it.each([
+    'How should I structure learning ML?',
+    'I want to learn "Python", "Supervised Learning", and "Practice on Kaggle".\nHow should I structure this?',
+    'My notes use a backslash: C:\\learning\\ML',
+  ])('discusses an empty goal without losing message content: %s', async (text) => {
+    const { store, goalId, chat, application } = fixture()
+    const config = store.config()
+    store.saveConfig({
+      ...config,
+      goals: [
+        {
+          ...config.goals[0],
+          title: 'Learning ML',
+          preferredDailyMinutes: null,
+          notes: 'Flexible learning time.',
+        },
+      ],
+      tasks: [],
+    })
+    const roadmap = {
+      kind: 'roadmap',
+      explanation: 'Start with Python foundations, then supervised learning.',
+      tasks: [{ id: null, title: 'Python foundations', deadline: null, estimateMinutes: 600 }],
+      priority: 5,
+      preferredDailyMinutes: null,
+      deadline: null,
+    }
+    chat.mockResolvedValue(response(JSON.stringify(roadmap)))
+    try {
+      const result = await application.discussGoal({ goalId, text })
+      expect(result.decision).toEqual(roadmap)
+      expect(chat).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(chat.mock.calls[0][0].at(-1)!.content)).toMatchObject({
+        currentRequest: text,
+        tasks: [],
+      })
+      expect(store.config().tasks).toEqual([])
+      const saved = application.approveRoadmap({
+        decisionId: result.decisionId,
+        tasks: roadmap.tasks,
+        priority: roadmap.priority,
+        preferredDailyMinutes: null,
+        deadline: null,
+      })
+      expect(saved.tasks).toHaveLength(1)
+      expect(saved.tasks[0].title).toBe('Python foundations')
+    } finally {
+      store.close()
+    }
+  })
+  it.each(['request', 'goal', 'role', 'json'])(
+    'rejects a genuinely mismatched context: %s',
+    async (fault) => {
+      const { store, goalId, chat } = fixture()
+      const text = 'Structure my ML goal.'
+      const planner = new Planner(store, { chat })
+      const content =
+        fault === 'json'
+          ? '{'
+          : JSON.stringify({
+              goal: { id: fault === 'goal' ? randomUUID() : goalId },
+              currentRequest: fault === 'request' ? text + ' something else' : text,
+            })
+      try {
+        await expect(
+          planner.discussGoal(
+            { goalId, text },
+            store.snapshot(),
+            [{ role: fault === 'role' ? 'assistant' : 'user', content }],
+            {},
+          ),
+        ).rejects.toThrow('Goal discussion context is incomplete.')
+        expect(chat).not.toHaveBeenCalled()
+      } finally {
+        store.close()
+      }
+    },
+  )
   it('repairs malformed JSON once and preserves completed work when the roadmap is accepted', async () => {
     const { store, goalId, doneId, roadmap, chat, application } = fixture()
     const completed = store.snapshot().tasks.find((task) => task.id === doneId)

@@ -29,6 +29,7 @@ const bridge: DesktopBridge = {
   checkInAndPlan: (update) => ipcRenderer.invoke('day:checkin', update),
   recordOutcome: (command) => ipcRenderer.invoke('day:outcome', command),
   approveChanges: (review) => ipcRenderer.invoke('day:approve-changes', review),
+  getDashboardSummary: () => ipcRenderer.invoke('dashboard:get'),
   getHistory: (query) => ipcRenderer.invoke('history:get', query),
   exportData: () => ipcRenderer.invoke('data:export'),
   onDownload: (callback) => {
