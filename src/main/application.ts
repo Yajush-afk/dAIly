@@ -15,6 +15,7 @@ import type { Planner } from './planner'
 import type { Sessions } from './sessions'
 import {
   GoalDecisionSchema,
+  goalDecisionFormat,
   GoalDiscussionInputSchema,
   type GoalDiscussionInput,
   RoadmapReviewSchema,
@@ -195,9 +196,9 @@ export class DayApplication {
         interruption,
         startedAt,
       }))
-    const conversation = this.store.goalConversation(goalId).map((message) => ({
+    const conversation = this.store.goalConversation(goalId, 6).map((message) => ({
       role: message.role === 'mentor' ? ('assistant' as const) : ('user' as const),
-      content: message.text,
+      content: message.text.slice(0, 600),
     }))
     const now = DateTime.fromMillis(this.clock(), { zone: state.profile.timezone }).toISODate()
     const inputRevision = this.store.planningRevision
@@ -210,7 +211,7 @@ export class DayApplication {
       goalId,
     })
     try {
-      const instructions = `You are dAIly's practical goal mentor. Have a focused conversation about the selected goal. Ask a clear question when the goal, available effort, scope, or deadline is unclear. Only propose a roadmap after the user has discussed enough detail or asks you to draft one. Do not invent facts or claim that a suggestion has been saved. A roadmap must contain the complete ordered set of unfinished tasks with realistic deadlines and estimates for the total effort of each whole task, not daily effort. Preserve every completed task exactly. Put new tasks first in dependency order then by deadline. Keep the chosen goal's main deadline, priority, and preferred daily minutes distinct. Keep explanations short and readable. Today is ${now}. Return structured data.`
+      const instructions = `You are dAIly's practical goal mentor. Have a focused conversation about the selected goal. Ask a clear question when the goal, available effort, scope, or deadline is unclear. Only propose a roadmap after the user has discussed enough detail or asks you to draft one. Do not invent facts or claim that a suggestion has been saved. A roadmap must contain the complete ordered set of unfinished tasks with realistic deadlines and estimates for the total effort of each whole task, not daily effort. Include every unfinished task exactly once using its supplied ID. Use null only for new tasks. Leave completed tasks out of the roadmap; the application preserves them automatically. Put new tasks first in dependency order then by deadline. Keep the chosen goal's main deadline, priority, and preferred daily minutes distinct. When the user asks you to recommend an order, use your judgment to suggest one and explain it. Do not ask them to choose percentages or repeat questions already answered. Ask only about missing facts that would materially change the roadmap. Keep explanations to at most three sentences. Return compact JSON without indentation. Use ordinary punctuation and avoid em dashes. Today is ${now}. Return structured data.`
       const request: GoalDiscussionInput = { goalId, text }
       const messages: import('../shared/ai').ChatMessage[] = [
         { role: 'system', content: instructions },
@@ -220,32 +221,44 @@ export class DayApplication {
           content: JSON.stringify({ goal, tasks, recentOutcomes: recent, currentRequest: text }),
         },
       ]
+      const readDecision = (answer: string) => {
+        const decision = GoalDecisionSchema.parse(JSON.parse(answer))
+        if (decision.kind === 'roadmap') {
+          if (
+            decision.tasks.some(
+              (task) =>
+                task.id !== null &&
+                !tasks.some((old) => old.id === task.id && old.status === 'todo'),
+            )
+          )
+            throw new Error('The proposed roadmap included an unknown or completed task.')
+          const ids = decision.tasks.filter((task) => task.id).map((task) => task.id)
+          if (new Set(ids).size !== ids.length)
+            throw new Error('The proposed roadmap repeated a task.')
+          if (tasks.some((task) => task.status === 'todo' && !ids.includes(task.id)))
+            throw new Error(
+              'Include every unfinished task by its supplied ID. Do not omit a topic from the roadmap.',
+            )
+          const completed = tasks.filter((task) => task.status === 'done')
+          if (completed.some((task) => decision.tasks.some((next) => next.id === task.id)))
+            throw new Error('Completed work cannot be replanned.')
+        }
+        return decision
+      }
       const answer = await this.planner.discussGoal(
         request,
         state,
         messages,
-        z.toJSONSchema(GoalDecisionSchema),
+        goalDecisionFormat(tasks.filter((task) => task.status === 'todo').map((task) => task.id)),
+        (content) => {
+          readDecision(content)
+        },
       )
       if (this.store.planningRevision !== inputRevision)
         throw new Error(
           'This goal changed while dAIly was considering it. Please send your message again.',
         )
-      const decision = GoalDecisionSchema.parse(JSON.parse(answer))
-      if (decision.kind === 'roadmap') {
-        if (
-          decision.tasks.some(
-            (task) =>
-              task.id !== null && !tasks.some((old) => old.id === task.id && old.status === 'todo'),
-          )
-        )
-          throw new Error('The proposed roadmap included an unknown or completed task.')
-        const ids = decision.tasks.filter((task) => task.id).map((task) => task.id)
-        if (new Set(ids).size !== ids.length)
-          throw new Error('The proposed roadmap repeated a task.')
-        const completed = tasks.filter((task) => task.status === 'done')
-        if (completed.some((task) => decision.tasks.some((next) => next.id === task.id)))
-          throw new Error('Completed work cannot be replanned.')
-      }
+      const decision = readDecision(answer)
       const decisionId = randomUUID()
       const display = decision.explanation
       this.store.put('messages', {
@@ -280,13 +293,15 @@ export class DayApplication {
     const current = config.tasks.filter((task) => task.goalId === goal.id)
     const ids = new Set(review.tasks.flatMap((task) => (task.id ? [task.id] : [])))
     if (
-      current.some(
+      review.tasks.some(
         (task) =>
-          (task.status === 'done' || this.store.activeSession()?.taskId === task.id) &&
-          !ids.has(task.id),
-      )
+          task.id !== null && !current.some((old) => old.id === task.id && old.status === 'todo'),
+      ) ||
+      ids.size !== review.tasks.filter((task) => task.id !== null).length
     )
-      throw new Error('The roadmap must preserve completed work and the active focus session.')
+      throw new Error('Use each unfinished task once. Completed work is preserved automatically.')
+    if (current.some((task) => this.store.activeSession()?.taskId === task.id && !ids.has(task.id)))
+      throw new Error('The roadmap must preserve the active focus session.')
     const ordered = [...review.tasks].sort((a, b) =>
       (a.deadline || '9999').localeCompare(b.deadline || '9999'),
     )

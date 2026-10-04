@@ -4,6 +4,13 @@ export function explicitSubmit(event: KeyboardEvent<HTMLFormElement>): void {
   if (event.key === 'Enter' && event.target instanceof HTMLInputElement) event.preventDefault()
 }
 
+export function sendChatOnEnter(event: KeyboardEvent<HTMLTextAreaElement>, send: () => void): void {
+  if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+    event.preventDefault()
+    send()
+  }
+}
+
 export function MinutesInput({
   value,
   onChange,

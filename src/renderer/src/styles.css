@@ -80,6 +80,48 @@ button.primary {
 button.primary:hover {
   opacity: 0.85;
 }
+button.outlined {
+  border: 1px solid var(--line);
+}
+.goal-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.goal-toolbar .actions {
+  margin-top: 0;
+}
+.goal-summary {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+.goal-summary summary {
+  color: var(--text);
+  font-weight: 600;
+}
+.goal-summary ul {
+  padding-left: 24px;
+  margin: 12px 0;
+}
+.new-goal-dialog {
+  margin: auto;
+  padding: 28px;
+  width: min(560px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+}
+.new-goal-dialog::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+.new-goal-dialog .form-grid {
+  margin-top: 20px;
+}
 a {
   color: inherit;
 }
