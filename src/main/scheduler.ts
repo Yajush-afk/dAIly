@@ -1,9 +1,14 @@
 import { DateTime } from 'luxon'
 import { randomUUID } from 'node:crypto'
 import type { Decision } from '../shared/planner'
-import type { Plan, Snapshot } from '../shared/state'
+import type { CheckIn, Plan, Snapshot } from '../shared/state'
 
 export interface Interval { start: number; end: number }
+export function currentCheckIn(state: Snapshot, now: number): CheckIn | undefined {
+  const p = state.profile, [hour, minute] = p.wakeTime.split(':').map(Number)
+  const planningDay = (at: number): string | null => DateTime.fromMillis(at, { zone: p.timezone }).minus({ minutes: hour * 60 + minute }).toISODate()
+  return [...state.checkIns].sort((a, b) => b.at.localeCompare(a.at)).find(c => Date.parse(c.at) <= now && now - Date.parse(c.at) < 18 * 3600000 && planningDay(Date.parse(c.at)) === planningDay(now))
+}
 export function availableIntervals(state: Snapshot, now: number): Interval[] {
   const p = state.profile
   const local = DateTime.fromMillis(now, { zone: p.timezone })
@@ -12,8 +17,7 @@ export function availableIntervals(state: Snapshot, now: number): Interval[] {
   const wake = at(local, p.wakeTime)
   // A late bedtime belongs to the evening that started before midnight.
   const cutoff = p.bedtime < p.wakeTime && local >= wake ? bedtimeToday.plus({ days: 1 }) : bedtimeToday
-  const latest = [...state.checkIns].sort((a, b) => b.at.localeCompare(a.at)).find(c => Date.parse(c.at) <= now)
-  const fresh = latest && now - Date.parse(latest.at) < 18 * 3600000 ? latest : undefined
+  const fresh = currentCheckIn(state, now)
   const end = Math.min(cutoff.toMillis(), fresh?.availableUntil ? Date.parse(fresh.availableUntil) : cutoff.toMillis())
   if (end <= now) return []
   const busy: Interval[] = (fresh?.busy || []).map(b => ({ start: Date.parse(b.start), end: Date.parse(b.end) }))

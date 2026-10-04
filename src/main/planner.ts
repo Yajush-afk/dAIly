@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { DecisionSchema, type MentorResult } from '../shared/planner'
 import type { ChatMessage } from '../shared/ai'
 import type { Snapshot } from '../shared/state'
-import { availableIntervals, schedule } from './scheduler'
+import { availableIntervals, currentCheckIn, schedule } from './scheduler'
 import type { Store } from './store'
 import type { OllamaClient } from './ollama'
 
@@ -11,11 +11,11 @@ export function planningContext(state: Snapshot, now: number): object {
   const week = now - 7 * 86400000
   const goals = new Map(state.goals.map(g => [g.id, g]))
   const tasks = state.tasks.filter(t => t.status === 'todo').sort((a, b) => (a.deadline || goals.get(a.goalId)?.deadline || '9999').localeCompare(b.deadline || goals.get(b.goalId)?.deadline || '9999') || (goals.get(a.goalId)?.priority || 5) - (goals.get(b.goalId)?.priority || 5)).slice(0, 16)
-  return { now: new Date(now).toISOString(), revision: state.revision, decisionConstraints: decisionConstraints(state, now), profile: { name: state.profile.name, timezone: state.profile.timezone, bedtime: state.profile.bedtime, focusMinutes: state.profile.focusMinutes, breakMinutes: state.profile.breakMinutes }, availableIntervals: availableIntervals(state, now).map(i => ({ start: new Date(i.start).toISOString(), end: new Date(i.end).toISOString() })), goals: state.goals.filter(g => tasks.some(t => t.goalId === g.id)), tasks, omittedTaskCount: state.tasks.filter(t => t.status === 'todo').length - tasks.length, latestCheckIn: state.checkIns.at(-1) || null, recentOutcomes: state.sessions.filter(s => Date.parse(s.startedAt) >= week).slice(-8).map(s => ({ taskId: s.taskId, date: s.startedAt, targetMinutes: s.targetMinutes, elapsedSeconds: s.elapsedSeconds, outcome: s.outcome, work: s.work.slice(0, 160), interruption: s.interruption.slice(0, 120) })), recentDeferrals: state.plans.filter(p => Date.parse(p.createdAt) >= week).slice(-3).map(p => ({ at: p.createdAt, deferred: p.deferred.filter(d => tasks.some(t => t.id === d.taskId)).map(d => ({ taskId: d.taskId, reason: d.reason.slice(0, 100) })) })), conversation: state.messages.slice(-4).map(m => ({ role: m.role, text: m.text.slice(0, 600) })) }
+  return { now: new Date(now).toISOString(), revision: state.revision, decisionConstraints: decisionConstraints(state, now), profile: { name: state.profile.name, timezone: state.profile.timezone, bedtime: state.profile.bedtime, focusMinutes: state.profile.focusMinutes, breakMinutes: state.profile.breakMinutes }, availableIntervals: availableIntervals(state, now).map(i => ({ start: new Date(i.start).toISOString(), end: new Date(i.end).toISOString() })), goals: state.goals.filter(g => tasks.some(t => t.goalId === g.id)), tasks, omittedTaskCount: state.tasks.filter(t => t.status === 'todo').length - tasks.length, latestCheckIn: currentCheckIn(state, now) || null, recentOutcomes: state.sessions.filter(s => Date.parse(s.startedAt) >= week).slice(-8).map(s => ({ taskId: s.taskId, date: s.startedAt, targetMinutes: s.targetMinutes, elapsedSeconds: s.elapsedSeconds, outcome: s.outcome, work: s.work.slice(0, 160), interruption: s.interruption.slice(0, 120) })), recentDeferrals: state.plans.filter(p => Date.parse(p.createdAt) >= week).slice(-3).map(p => ({ at: p.createdAt, deferred: p.deferred.filter(d => tasks.some(t => t.id === d.taskId)).map(d => ({ taskId: d.taskId, reason: d.reason.slice(0, 100) })) })), conversation: state.messages.slice(-4).map(m => ({ role: m.role, text: m.text.slice(0, 600) })) }
 }
 export function decisionConstraints(state: Snapshot, now: number): { maxBlockMinutes: number; repeatedObstacles: { taskId: string; interruptions: number; deferredDays: number; reason: string }[] } {
-  const checkIn = state.checkIns.at(-1)
-  const low = checkIn?.energy === 'low' && now - Date.parse(checkIn.at) < 18 * 3600000
+  const checkIn = currentCheckIn(state, now)
+  const low = checkIn?.energy === 'low'
   const available = Math.max(0, ...availableIntervals(state, now).map(i => Math.floor((i.end - i.start) / 60000)))
   return { maxBlockMinutes: Math.min(state.profile.focusMinutes, available, low ? 20 : 120), repeatedObstacles: state.tasks.flatMap(t => {
     const interrupted = state.sessions.filter(s => s.taskId === t.id && s.outcome === 'interrupted' && Date.parse(s.startedAt) >= now - 7 * 86400000)

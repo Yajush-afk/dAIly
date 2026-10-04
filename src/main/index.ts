@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, Tray, Menu, nativeImage, Notification, powerMonitor, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, Tray, Menu, nativeImage, Notification, powerMonitor, dialog, nativeTheme } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { isTrustedRendererUrl } from './security'
@@ -64,7 +64,7 @@ app.whenReady().then(() => {
     if (!Notification.isSupported()) return false
     const notice = new Notification({ title, body }); notice.on('click', openWindow); notice.show(); return true
   })
-  const applyLogin = (): void => { if (process.platform === 'win32') app.setLoginItemSettings({ openAtLogin: store.snapshot().profile.launchAtLogin, args: ['--hidden'] }) }
+  const applyLogin = (): void => { nativeTheme.themeSource = store.snapshot().profile.theme; if (process.platform === 'win32') app.setLoginItemSettings({ openAtLogin: store.snapshot().profile.launchAtLogin, args: ['--hidden'] }) }
   const handle = (channel: string, handler: (input: unknown) => unknown): void => {
     ipcMain.handle(channel, (event, input: unknown) => {
       if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame || !isTrustedRendererUrl(event.senderFrame.url, rendererUrl)) throw new Error('Untrusted renderer')
