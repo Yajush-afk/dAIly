@@ -1,12 +1,14 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { isTrustedRendererUrl } from './security'
 import { Store } from './store'
 import { CheckInSchema, ConfigSchema } from '../shared/state'
+import { OllamaClient } from './ollama'
 
 let rendererUrl = ''
 let store: Store
+const ollama = new OllamaClient()
 function publish(): void { for (const window of BrowserWindow.getAllWindows()) window.webContents.send('state:changed', store.snapshot()) }
 
 function createWindow(): void {
@@ -34,6 +36,10 @@ app.whenReady().then(() => {
   handle('state:get', () => store.snapshot())
   handle('config:save', input => { const result = store.saveConfig(ConfigSchema.parse(input)); publish(); return result })
   handle('checkin:save', input => { store.put('checkIns', CheckInSchema.parse(input)); publish(); return store.snapshot() })
+  handle('model:status', () => ollama.status())
+  handle('model:download', () => ollama.pull(progress => { for (const window of BrowserWindow.getAllWindows()) window.webContents.send('model:progress', progress) }))
+  handle('model:cancel', () => ollama.cancel())
+  handle('model:install', () => shell.openExternal('https://ollama.com/download/windows'))
   createWindow()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
