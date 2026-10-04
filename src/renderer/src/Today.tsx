@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { DateTime } from 'luxon'
-import type { Config, Snapshot } from '../../shared/state'
+import type { Snapshot } from '../../shared/state'
 import type { MentorResult } from '../../shared/planner'
 import { configFrom } from './Editors'
 import { useClock } from './useClock'
 import { FocusSession } from './FocusSession'
 
-export function Today({ state, save }: { state: Snapshot; save: (config: Config) => Promise<void> }): React.JSX.Element {
+export function Today({ state }: { state: Snapshot }): React.JSX.Element {
   const [note, setNote] = useState('')
   const [energy, setEnergy] = useState<'unknown' | 'low' | 'okay' | 'high'>('unknown')
   const [until, setUntil] = useState(state.profile.bedtime)
@@ -50,6 +50,15 @@ export function Today({ state, save }: { state: Snapshot; save: (config: Config)
     if (!plan || !window.dAIly) return
     try { await window.dAIly.acceptPlan(plan.id) } catch (reason) { setError(String(reason)) }
   }
+  async function saveChanges(): Promise<void> {
+    if (!result || result.decision.kind !== 'propose_changes' || !window.dAIly) return
+    if (result.revision !== state.revision) { setError('Your records changed. Ask for a fresh suggestion.'); return }
+    setBusy(true); setError('')
+    try {
+      await window.dAIly.saveConfig({ ...configFrom(state), tasks: [...state.tasks, ...drafts.map(t => ({ ...t, id: crypto.randomUUID(), status: 'todo' as const, deadline: null }))], profile: { ...state.profile, ...result.decision.preferences } })
+      setResult(undefined)
+    } catch (reason) { setError(String(reason)) } finally { setBusy(false) }
+  }
   const next = plan?.blocks.find(b => b.kind === 'focus' && Date.parse(b.end) > now && !state.sessions.some(s => s.blockId === b.id && s.state === 'finished'))
   return <>
     {error && <p className="error" role="alert">{error}</p>}
@@ -66,7 +75,7 @@ export function Today({ state, save }: { state: Snapshot; save: (config: Config)
     {result && result.decision.kind !== 'propose_plan' && <section aria-live="polite"><p>{result.decision.kind === 'ask_question' ? result.decision.question : result.decision.explanation}</p>
       {result.decision.kind === 'propose_changes' && <><h2>Review these changes</h2>{drafts.map((task, i) => <div className="task-row" key={i}><label>Next step<input value={task.title} onChange={e => setDrafts(drafts.map((t, n) => n === i ? { ...t, title: e.target.value } : t))} /></label><label>Minutes<input type="number" min="5" max="120" value={task.estimateMinutes} onChange={e => setDrafts(drafts.map((t, n) => n === i ? { ...t, estimateMinutes: Number(e.target.value) } : t))} /></label></div>)}
         <p className="notice">{Object.entries(result.decision.preferences).map(([k, v]) => `${k === 'focusMinutes' ? 'Focus' : 'Break'}: ${v} minutes`).join(', ') || 'No preference changes.'}</p>
-        <button onClick={() => { if (result.revision !== state.revision) { setError('Your records changed. Ask for a fresh suggestion.'); return } const decision = result.decision; if (decision.kind !== 'propose_changes') return; void save({ ...configFrom(state), tasks: [...state.tasks, ...drafts.map(t => ({ ...t, id: crypto.randomUUID(), status: 'todo' as const, deadline: null }))], profile: { ...state.profile, ...decision.preferences } }).then(() => setResult(undefined)).catch(reason => setError(String(reason))) }}>Save reviewed changes</button></>}
+        <button disabled={busy} onClick={() => void saveChanges()}>Save reviewed changes</button></>}
     </section>}
     <section className="composer"><h2>Update your day</h2><form onSubmit={e => { e.preventDefault(); void ask(note.trim() || 'Help me choose an achievable plan with the time and energy I reported.', true) }}>
       <div className="form-grid"><label>Energy<select value={energy} onChange={e => setEnergy(e.target.value as typeof energy)}><option value="unknown">Not sure</option><option value="low">Low</option><option value="okay">Okay</option><option value="high">High</option></select></label><label>Available until<input type="time" required value={until} onChange={e => setUntil(e.target.value)} /></label></div>

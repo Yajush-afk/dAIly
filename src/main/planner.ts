@@ -38,7 +38,7 @@ export class Planner {
         const response = await this.model.chat(messages, z.toJSONSchema(DecisionSchema))
         if (this.store.revision !== state.revision) throw new Error('Your situation changed while Gemma was thinking. Request a fresh plan.')
         try {
-          const decision = DecisionSchema.parse(JSON.parse(response.content))
+          const decision = DecisionSchema.parse(JSON.parse(response.content.replaceAll('—', '; ')))
           const constraints = decisionConstraints(state, now)
           if (decision.kind === 'propose_plan') {
             if (decision.choices.some(c => c.minutes > constraints.maxBlockMinutes)) throw new Error(`Each block must be at most ${constraints.maxBlockMinutes} minutes given current availability and energy. Choose a smaller block or recommend rest.`)
@@ -48,7 +48,7 @@ export class Planner {
           if (decision.kind === 'propose_changes' && decision.tasks.some(t => !state.goals.some(g => g.id === t.goalId))) throw new Error('Suggested task has an unknown goal')
           this.store.db.transaction(() => {
             if (plan) this.store.put('plans', plan)
-            this.store.put('messages', { id: randomUUID(), at: new Date(this.clock()).toISOString(), role: 'mentor', text: decision.kind === 'ask_question' ? decision.question : decision.kind === 'propose_plan' ? decision.summary : decision.explanation })
+            this.store.put('messages', { id: randomUUID(), at: new Date(this.clock()).toISOString(), role: 'mentor', text: decision.kind === 'ask_question' ? decision.question : plan ? plan.summary : decision.kind === 'propose_plan' ? decision.summary : decision.explanation, details: { type: 'decision', payload: JSON.stringify(decision) } })
           })()
           return { decision, planId: plan?.id, revision: this.store.revision, durationMs: response.durationMs }
         } catch (error) {
@@ -67,6 +67,7 @@ export class Planner {
     if (plan.blocks.some(b => b.kind === 'focus' && Date.parse(b.start) < this.clock() - 5 * 60000)) throw new Error('This plan has become outdated. Ask for a fresh proposal.')
     this.store.db.transaction(() => {
       for (const old of state.plans.filter(p => p.status !== 'superseded')) this.store.put('plans', { ...old, status: old.id === id ? 'accepted' : 'superseded' })
+      this.store.put('messages', { id: randomUUID(), at: new Date(this.clock()).toISOString(), role: 'user', text: 'Accepted this plan.', details: { type: 'plan-accept', payload: JSON.stringify({ planId: id }) } })
     })()
     return this.store.snapshot()
   }
