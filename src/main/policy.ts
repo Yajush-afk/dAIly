@@ -79,6 +79,27 @@ export function validateDecision(state: Snapshot, decision: Decision, now: numbe
       throw new Error(
         `Each block must be at most ${constraints.maxBlockMinutes} minutes given current availability and energy.`,
       )
+    const byId = new Map(state.tasks.map((task) => [task.id, task]))
+    const goals = new Map(state.goals.map((goal) => [goal.id, goal]))
+    const selected = decision.choices.map((choice) => byId.get(choice.taskId))
+    if (selected.every((task): task is NonNullable<typeof task> => Boolean(task))) {
+      const effectiveDeadline = (task: NonNullable<(typeof selected)[number]>): string =>
+        [task.deadline, goals.get(task.goalId)?.deadline]
+          .filter((date): date is string => Boolean(date))
+          .sort()[0] || '9999'
+      for (let index = 1; index < selected.length; index++) {
+        const previous = selected[index - 1]!
+        const next = selected[index]!
+        if (
+          effectiveDeadline(previous) > effectiveDeadline(next) ||
+          (effectiveDeadline(previous) === effectiveDeadline(next) &&
+            (goals.get(previous.goalId)?.priority || 1) < (goals.get(next.goalId)?.priority || 1))
+        )
+          throw new Error(
+            'Order selected focus tasks by their closest deadline, then by goal priority.',
+          )
+      }
+    }
     if (
       decision.choices.some(
         (c) =>

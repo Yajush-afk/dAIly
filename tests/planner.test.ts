@@ -112,6 +112,35 @@ describe('deterministic planning', () => {
       ),
     ).toThrow('current setting')
   })
+  it('requires earlier deadlines to come before open-ended tasks', () => {
+    const s = scenario(),
+      openGoalId = randomUUID(),
+      openTaskId = randomUUID()
+    s.goals.push({ id: openGoalId, title: 'DSA', priority: 5, deadline: null })
+    s.tasks.push({
+      id: openTaskId,
+      goalId: openGoalId,
+      title: 'Solve a graph problem',
+      estimateMinutes: 30,
+      deadline: null,
+      status: 'todo',
+    })
+    expect(() =>
+      validateDecision(
+        s,
+        {
+          kind: 'propose_plan',
+          summary: 'Do both tasks.',
+          choices: [
+            { taskId: openTaskId, minutes: 15, reason: 'Make progress on DSA.' },
+            { taskId: s.tasks[0].id, minutes: 15, reason: 'Review for the exam.' },
+          ],
+          deferred: [],
+        },
+        now,
+      ),
+    ).toThrow('closest deadline')
+  })
   it('repairs invalid output once and discards results if state changed', async () => {
     const s = scenario(),
       store = new Store(':memory:')
