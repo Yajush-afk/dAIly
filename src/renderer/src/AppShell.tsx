@@ -154,7 +154,7 @@ export function AppShell({
     <TooltipProvider delayDuration={250}>
       <SidebarProvider
         open={!narrow}
-        style={{ '--sidebar-width': '176px', '--sidebar-width-icon': '56px' } as CSSProperties}
+        style={{ '--sidebar-width': '224px', '--sidebar-width-icon': '56px' } as CSSProperties}
         className="daily-shell"
       >
         <AppNavigation page={page} navigate={navigate} />

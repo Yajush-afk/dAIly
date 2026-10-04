@@ -878,7 +878,7 @@ button {
   color: var(--muted);
 }
 .daily-conversation {
-  width: 360px;
+  width: 420px;
   flex-shrink: 0;
   background: var(--surface);
   border-left: 1px solid var(--line);
@@ -1040,8 +1040,8 @@ button {
 }
 .conversation-sheet {
   background: var(--surface);
-  width: min(400px, 100vw);
-  max-width: 400px;
+  width: min(420px, 100vw);
+  max-width: 420px;
   gap: 0;
 }
 .goal-conversation-host {
@@ -1226,7 +1226,9 @@ button {
   margin: 0 0 20px;
 }
 .legacy-settings {
+  width: 100%;
   max-width: 800px;
+  margin-inline: auto;
 }
 .legacy-settings > section {
   margin-bottom: 32px;
