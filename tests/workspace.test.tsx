@@ -7,7 +7,7 @@ import App from '../src/renderer/src/App'
 describe('desktop workspace', () => {
   it('navigates to goals from the empty plan', async () => {
     render(<App />)
-    await userEvent.click(screen.getByRole('button', { name: 'Add your goals' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Goals' }))
     expect(screen.getByRole('heading', { name: 'Goals', level: 1 })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Goals' })).toHaveAttribute('aria-current', 'page')
   })
