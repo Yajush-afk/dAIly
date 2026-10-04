@@ -52,7 +52,7 @@ No friend trial results are claimed in this repository until they actually occur
 
 ## Architecture refactor checks
 
-On October 4, the refactor passed 52 automated tests, including version-two migration preserving exact record payloads, indexed active-session reads, cursor pagination during inserts, relevant-input proposal validity, renderer deltas, offline outcome persistence, duplicate outcome handling, and idempotent reviewed-change approval.
+On October 4, the refactor passed 53 automated tests, including version-two migration preserving exact record payloads, indexed active-session reads, cursor pagination during inserts, relevant-input proposal validity, renderer deltas, offline outcome persistence, duplicate outcome handling, and idempotent reviewed-change approval.
 
 Six fixed Gemma scenarios were repeated twice with different user wording: all 12 passed their automated assertions. Planning requests took 9.1 to 22.4 seconds, including two requests that required a repair. Both exhausted-time cases used the application guard without inference. This remains a small sample, and explanation quality requires human review. Repeat with `npm run evaluate:gemma -- --repeats=2`.
 
@@ -61,3 +61,5 @@ A temporary on-disk SQLite benchmark seeded 3,650 completed sessions, 3,650 hist
 Native Electron smoke also received a real Gemma decision through the preload bridge after the refactor. Its test database was isolated. Linux smoke required the explicit test-only sandbox override because the SUID helper needs a sudo permission repair; normal application sandboxing remains enabled. Windows CI checks the packaged application without that override.
 
 See [architecture.md](architecture.md) for the remaining constraints and [setup.md](setup.md) for Ubuntu commands and database reset.
+
+A subsequent query-plan check added an ordering index for newest-record reads and verified that SQLite does not build a temporary sort for the latest messages. The final local benchmark measured timer p95 at 0.36 ms, bounded workspace p95 at 8.9 ms, and the first history page at 9.1 ms with the same synthetic history. Variance between these small runs is expected; neither result is a cross-platform performance guarantee.

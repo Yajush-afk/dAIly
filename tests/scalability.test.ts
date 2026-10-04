@@ -313,4 +313,15 @@ describe('durable application architecture', () => {
     expect(decisionConstraints(state, now).repeatedObstacles).toEqual([])
     store.close()
   })
+  it('indexes newest-message and cursor reads instead of sorting all history', () => {
+    const { store } = setup()
+    const plan = store.db
+      .prepare(
+        "EXPLAIN QUERY PLAN SELECT value FROM records WHERE kind='messages' ORDER BY rowid DESC LIMIT 20",
+      )
+      .all()
+    expect(JSON.stringify(plan)).toContain('records_order')
+    expect(JSON.stringify(plan)).not.toContain('TEMP B-TREE')
+    store.close()
+  })
 })

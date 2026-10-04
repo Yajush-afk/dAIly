@@ -4,7 +4,7 @@ The renderer presents records and submits commands through a validated preload i
 
 ## Storage and migration
 
-Schema version 3 retains the version 1 and 2 JSON records intact. It adds expression indexes for record time, state, status, and session block; a unique index permits only one unfinished focus session. Migration, writes, and reviewed-change approvals are transactional. Unsupported future versions and failed migrations close the database handle without deleting records.
+Schema version 3 retains the version 1 and 2 JSON records intact. It adds indexes for record ordering, time, state, status, and session block; a unique index permits only one unfinished focus session. Migration, writes, and reviewed-change approvals are transactional. Unsupported future versions and failed migrations close the database handle without deleting records.
 
 Store offers separate interfaces for runtime state, planning context, the current workspace, paginated history, and full export. Only explicit exports and test verification use the full snapshot. Configuration is cached internally and copied for callers. The one-second loop reads the active session and current routine, without loading past sessions, plans, or conversation. Recent check-ins are time-filtered. Planning reads the last seven days through an index, then bounds model context.
 

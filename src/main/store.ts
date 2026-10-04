@@ -46,8 +46,8 @@ export class Store {
             'CREATE TABLE notifications (key TEXT PRIMARY KEY, sent_at TEXT NOT NULL); PRAGMA user_version = 2;',
           )
         if (version < 3) {
-          this.db
-            .exec(`CREATE INDEX records_time ON records(kind, COALESCE(json_extract(value, '$.startedAt'), json_extract(value, '$.createdAt'), json_extract(value, '$.at')));
+          this.db.exec(`CREATE INDEX records_order ON records(kind);
+          CREATE INDEX records_time ON records(kind, COALESCE(json_extract(value, '$.startedAt'), json_extract(value, '$.createdAt'), json_extract(value, '$.at')));
           CREATE INDEX records_state ON records(kind, json_extract(value, '$.state'));
           CREATE INDEX records_status ON records(kind, json_extract(value, '$.status'));
           CREATE INDEX sessions_block ON records(json_extract(value, '$.blockId')) WHERE kind = 'sessions';
@@ -288,7 +288,7 @@ export class Store {
   openPlans(): Snapshot['plans'] {
     return this.query(
       'plans',
-      "AND json_extract(value, '$.status') != 'superseded' ORDER BY rowid",
+      "AND json_extract(value, '$.status') IN ('proposed', 'accepted') ORDER BY rowid",
       [],
     )
   }
