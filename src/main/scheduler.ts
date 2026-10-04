@@ -1,9 +1,14 @@
 import { DateTime } from 'luxon'
 import { randomUUID } from 'node:crypto'
 import type { Decision } from '../shared/planner'
-import type { Plan, Snapshot } from '../shared/state'
+import type { CheckIn, Plan, Snapshot } from '../shared/state'
 
 export interface Interval { start: number; end: number }
+export function currentCheckIn(state: Snapshot, now: number): CheckIn | undefined {
+  const p = state.profile, [hour, minute] = p.wakeTime.split(':').map(Number)
+  const planningDay = (at: number): string | null => DateTime.fromMillis(at, { zone: p.timezone }).minus({ minutes: hour * 60 + minute }).toISODate()
+  return [...state.checkIns].sort((a, b) => b.at.localeCompare(a.at)).find(c => Date.parse(c.at) <= now && now - Date.parse(c.at) < 18 * 3600000 && planningDay(Date.parse(c.at)) === planningDay(now))
+}
 export function availableIntervals(state: Snapshot, now: number): Interval[] {
   const p = state.profile
   const local = DateTime.fromMillis(now, { zone: p.timezone })
@@ -12,8 +17,7 @@ export function availableIntervals(state: Snapshot, now: number): Interval[] {
   const wake = at(local, p.wakeTime)
   // A late bedtime belongs to the evening that started before midnight.
   const cutoff = p.bedtime < p.wakeTime && local >= wake ? bedtimeToday.plus({ days: 1 }) : bedtimeToday
-  const latest = [...state.checkIns].sort((a, b) => b.at.localeCompare(a.at)).find(c => Date.parse(c.at) <= now)
-  const fresh = latest && now - Date.parse(latest.at) < 18 * 3600000 ? latest : undefined
+  const fresh = currentCheckIn(state, now)
   const end = Math.min(cutoff.toMillis(), fresh?.availableUntil ? Date.parse(fresh.availableUntil) : cutoff.toMillis())
   if (end <= now) return []
   const busy: Interval[] = (fresh?.busy || []).map(b => ({ start: Date.parse(b.start), end: Date.parse(b.end) }))
@@ -57,6 +61,6 @@ export function schedule(state: Snapshot, decision: Extract<Decision, { kind: 'p
     slot.start = start + c.minutes * 60000; previousEnd = slot.start
   }
   for (const task of tasks.values()) if (!blocks.some(b => b.taskId === task.id) && !deferred.has(task.id)) deferred.set(task.id, { taskId: task.id, reason: 'Left outside this plan. Ask the mentor if you want to change the priorities.' })
-  const summary = decision.choices.length && !blocks.length ? 'None of the suggested blocks fits your remaining availability. Stop here or ask for a smaller next step.' : decision.summary
+  const summary = decision.choices.length && !blocks.length ? 'None of the suggested blocks fits your remaining availability. Stop here or ask for a smaller next step.' : decision.choices.some(c => !blocks.some(b => b.taskId === c.taskId)) ? `${decision.summary} Some suggested work did not fit and is deferred below.` : decision.summary
   return { id: randomUUID(), createdAt: new Date(now).toISOString(), contextRevision: state.revision, status: 'proposed', summary, blocks, deferred: [...deferred.values()] }
 }

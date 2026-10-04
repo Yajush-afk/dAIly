@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { Store } from '../src/main/store'
 import { Planner, decisionConstraints } from '../src/main/planner'
 import { Sessions } from '../src/main/sessions'
-import { schedule, availableIntervals } from '../src/main/scheduler'
+import { schedule, availableIntervals, currentCheckIn } from '../src/main/scheduler'
 import { arrivalDue } from '../src/main/notifications'
 import { defaultProfile, type Snapshot } from '../src/shared/state'
 
@@ -18,6 +18,12 @@ function fixture(): { store: Store; now: number } {
 }
 const proposal = (s: Snapshot) => ({ kind: 'propose_plan' as const, summary: 'Two achievable blocks', choices: s.tasks.map(t => ({ taskId: t.id, minutes: 30, reason: 'Your exam is tomorrow.' })), deferred: [] })
 describe('complete workflow safeguards', () => {
+  it('treats yesterday or future check-ins as unknown instead of today\'s energy', () => {
+    const { store, now } = fixture(), s = store.snapshot()
+    s.checkIns.push({ id: randomUUID(), at: new Date(now - 24 * 3600000).toISOString(), availableUntil: null, energy: 'low', note: '', busy: [] })
+    s.checkIns.push({ ...s.checkIns[0], id: randomUUID(), at: new Date(now + 3600000).toISOString() })
+    expect(currentCheckIn(s, now)).toBeUndefined(); expect(decisionConstraints(s, now).maxBlockMinutes).toBe(45); store.close()
+  })
   it('reduces low-energy block limits and identifies repeated interruptions', () => {
     const { store, now } = fixture(), s = store.snapshot()
     s.checkIns.push({ id: randomUUID(), at: new Date(now).toISOString(), availableUntil: new Date(now + 120 * 60000).toISOString(), energy: 'low', note: '', busy: [] })
@@ -32,6 +38,14 @@ describe('complete workflow safeguards', () => {
     expect(p.blocks.filter(b => b.kind === 'focus')).toHaveLength(2)
     expect(p.blocks.every(b => availableIntervals(s, now).some(i => Date.parse(b.start) >= i.start && Date.parse(b.end) <= i.end))).toBe(true)
     expect(Date.parse(p.blocks.at(-1)!.start)).toBe(now + 50 * 60000); store.close()
+  })
+  it('counts repeated deferrals by distinct day instead of revisions', () => {
+    const { store, now } = fixture(), s = store.snapshot()
+    const p = { ...schedule(s, proposal(s), now), blocks: [], deferred: [{ taskId: s.tasks[0].id, reason: 'Other work came first' }] }
+    s.plans = [0, 0, 0].map(day => ({ ...p, id: randomUUID(), createdAt: new Date(now - day * 86400000).toISOString() }))
+    expect(decisionConstraints(s, now).repeatedObstacles).toEqual([])
+    s.plans = [1, 2, 3].map(day => ({ ...p, id: randomUUID(), createdAt: new Date(now - day * 86400000).toISOString() }))
+    expect(decisionConstraints(s, now).repeatedObstacles[0].deferredDays).toBe(3); store.close()
   })
   it('preserves the accepted plan when both model attempts are invalid', async () => {
     const { store, now } = fixture()

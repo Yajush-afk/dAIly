@@ -40,7 +40,10 @@ export class Sessions {
       if (now < Date.parse(block.start) - 60000) throw new Error('This block starts later. Update your plan if you want to start now.')
       if (!availableIntervals(state, now).some(i => i.start <= now && i.end >= now + minutes * 60000)) throw new Error('This session no longer fits your availability. Update your plan.')
       if (now > Date.parse(block.end)) throw new Error('This block has passed. Ask for a fresh plan.')
-      this.store.put('sessions', { id: randomUUID(), taskId: task.id, blockId: block.id, startedAt: iso, segmentStartedAt: iso, targetMinutes: minutes, elapsedSeconds: 0, state: 'running', outcome: null, work: '', interruption: '', finishedAt: null, needsReconciliation: false })
+      this.store.db.transaction(() => {
+        this.store.put('sessions', { id: randomUUID(), taskId: task.id, blockId: block.id, startedAt: iso, segmentStartedAt: iso, targetMinutes: minutes, elapsedSeconds: 0, state: 'running', outcome: null, work: '', interruption: '', finishedAt: null, needsReconciliation: false })
+        this.store.put('messages', { id: randomUUID(), at: iso, role: 'user', text: `Started ${task.title}.`, details: { type: 'session-action', payload: JSON.stringify(command) } })
+      })()
       return this.store.snapshot()
     }
     const session = state.sessions.find(s => s.id === command.id)
@@ -60,8 +63,10 @@ export class Sessions {
       next = { ...next, elapsedSeconds: command.elapsedSeconds, needsReconciliation: false, state: command.elapsedSeconds >= session.targetMinutes * 60 ? 'awaiting-outcome' : 'paused' }
     }
     if (command.action === 'outcome') next = { ...next, state: 'finished', segmentStartedAt: null, elapsedSeconds: command.elapsedSeconds, outcome: command.outcome, work: command.work, interruption: command.interruption, finishedAt: iso, needsReconciliation: false }
+    if (JSON.stringify(next) === JSON.stringify(session)) return state
     this.store.db.transaction(() => {
       this.store.put('sessions', next)
+      this.store.put('messages', { id: randomUUID(), at: iso, role: 'user', text: command.action === 'outcome' ? `Reported ${command.outcome}: ${command.work || 'No work description.'}` : `Session ${command.action}.`, details: { type: 'session-action', payload: JSON.stringify(command) } })
       if (command.action === 'outcome' && command.outcome === 'completed') {
         const task = state.tasks.find(t => t.id === session.taskId)
         if (task) this.store.put('tasks', { ...task, status: 'done' })

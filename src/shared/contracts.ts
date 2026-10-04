@@ -14,7 +14,8 @@ export interface DesktopBridge {
   cancelModel(): Promise<void>
   openOllamaDownload(): Promise<void>
   onDownload(callback: (progress: DownloadProgress) => void): () => void
-  askMentor(text: string): Promise<MentorResult>
+  askMentor(text: string, intent?: 'plan' | 'conversation'): Promise<MentorResult>
   acceptPlan(id: string): Promise<Snapshot>
   sessionAction(command: SessionAction): Promise<Snapshot>
+  exportData(): Promise<{ cancelled: boolean; path?: string }>
 }

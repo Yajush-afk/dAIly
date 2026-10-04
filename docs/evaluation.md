@@ -20,6 +20,14 @@ Ollama `/api/ps` reported a runtime allocation of 3,778,177,248 bytes and VRAM a
 
 The exam explanation matched the supplied priority and deadline. The low-energy repair proposed a 20-minute smaller step without saving it automatically. It redundantly proposed the existing focus and break preferences, which the review screen exposes. The interruption scenario acknowledged an existing obstacle and shortened the block, but did not explore it deeply. Good structural output does not prove good mentoring.
 
+Additional cases exposed invented task identifiers and a work recommendation disguised as an explanation with zero availability. Model schemas now enumerate the real unfinished task and goal identifiers. Planning with fewer than five usable minutes returns a clearly attributed application availability response without calling Gemma. Mentor reflection remains available through Ask mentor after the cutoff. The model cannot turn an explanation into an executed schedule.
+
+The expanded fixed scenarios cover an exam tomorrow, low energy, repeated interruption, exhausted availability, an already completed task, and conflicting deadlines. Assertions check deadline order, cutoff, completed-task exclusion, smaller repeated attempts, and low-energy limits. Repeated deferrals count distinct days, not revisions. Long context is capped at 10,000 serialized characters and trims old conversation before relevant factual records; this is a size bound, not an exact Gemma token count.
+
+The actual packaged Linux application also received and accepted a real Gemma proposal through the preload bridge in 19.8 seconds. Repeat this integration check with `DAILY_SMOKE_WITH_MODEL=1 node scripts/smoke.mjs <packaged-executable> <report-directory>`. It requires an installed local model. Windows CI uses the standard smoke without downloading model weights.
+
+Some generated wording still paraphrases a task's scope imprecisely. The actual stored task title remains visible and unchanged, and time expiry never claims completion. Treat the model's wording as advice to review, not an authoritative record of completed work.
+
 The app applies a temporary maximum of 20 minutes per block for a fresh low-energy check-in. This does not change the saved focus preference. The model receives up to 16 unfinished tasks ordered by deadlines and priorities, eight recent outcomes, and recent deferrals. The omitted task count is explicit. Full history remains in SQLite.
 
 ## Automated coverage

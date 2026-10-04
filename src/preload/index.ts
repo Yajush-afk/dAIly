@@ -12,9 +12,10 @@ const bridge: DesktopBridge = {
   downloadModel: () => ipcRenderer.invoke('model:download'),
   cancelModel: () => ipcRenderer.invoke('model:cancel'),
   openOllamaDownload: () => ipcRenderer.invoke('model:install'),
-  askMentor: text => ipcRenderer.invoke('mentor:ask', { text }),
+  askMentor: (text, intent = 'plan') => ipcRenderer.invoke('mentor:ask', { text, intent }),
   acceptPlan: id => ipcRenderer.invoke('plan:accept', id),
   sessionAction: command => ipcRenderer.invoke('session:action', command),
+  exportData: () => ipcRenderer.invoke('data:export'),
   onDownload: callback => { const listener = (_event: Electron.IpcRendererEvent, progress: Parameters<typeof callback>[0]): void => callback(progress); ipcRenderer.on('model:progress', listener); return () => ipcRenderer.removeListener('model:progress', listener) }
 }
 contextBridge.exposeInMainWorld('dAIly', bridge)

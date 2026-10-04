@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, Tray, Menu, nativeImage, Notification, powerMonitor } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, Tray, Menu, nativeImage, Notification, powerMonitor, dialog, nativeTheme } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { isTrustedRendererUrl } from './security'
@@ -13,6 +13,8 @@ import { arrivalDue, LocalNotifications } from './notifications'
 import { resolve } from 'node:path'
 import { smoke } from './smoke'
 import { mkdirSync } from 'node:fs'
+import { writeFile, rename, unlink } from 'node:fs/promises'
+import { serializeExport } from './export'
 
 let rendererUrl = ''
 let store: Store
@@ -20,7 +22,7 @@ let sessions: Sessions
 let tray: Tray
 let quitting = false
 const smokeDirectory = process.argv.find(arg => arg.startsWith('--smoke-test='))?.slice('--smoke-test='.length)
-if (smokeDirectory) { app.disableHardwareAcceleration(); const path = resolve(smokeDirectory, 'user-data'); mkdirSync(path, { recursive: true }); app.setPath('userData', path) }
+if (smokeDirectory) { if (process.platform === 'win32') app.disableHardwareAcceleration(); const path = resolve(smokeDirectory, 'user-data'); mkdirSync(path, { recursive: true }); app.setPath('userData', path) }
 const ollama = new OllamaClient()
 function publish(): void { for (const window of BrowserWindow.getAllWindows()) window.webContents.send('state:changed', store.snapshot()) }
 
@@ -62,7 +64,7 @@ app.whenReady().then(() => {
     if (!Notification.isSupported()) return false
     const notice = new Notification({ title, body }); notice.on('click', openWindow); notice.show(); return true
   })
-  const applyLogin = (): void => { if (process.platform === 'win32') app.setLoginItemSettings({ openAtLogin: store.snapshot().profile.launchAtLogin, args: ['--hidden'] }) }
+  const applyLogin = (): void => { nativeTheme.themeSource = store.snapshot().profile.theme; if (process.platform === 'win32') app.setLoginItemSettings({ openAtLogin: store.snapshot().profile.launchAtLogin, args: ['--hidden'] }) }
   const handle = (channel: string, handler: (input: unknown) => unknown): void => {
     ipcMain.handle(channel, (event, input: unknown) => {
       if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame || !isTrustedRendererUrl(event.senderFrame.url, rendererUrl)) throw new Error('Untrusted renderer')
@@ -77,9 +79,17 @@ app.whenReady().then(() => {
   handle('model:download', () => ollama.pull(progress => { for (const window of BrowserWindow.getAllWindows()) window.webContents.send('model:progress', progress) }))
   handle('model:cancel', () => ollama.cancel())
   handle('model:install', () => shell.openExternal('https://ollama.com/download/windows'))
-  handle('mentor:ask', async input => { try { return await planner.request(MentorInput.parse(input).text) } finally { publish() } })
+  handle('mentor:ask', async input => { try { const request = MentorInput.parse(input); return await planner.request(request.text, request.intent) } finally { publish() } })
   handle('plan:accept', input => { const result = planner.accept(Id.parse(input)); publish(); return result })
   handle('session:action', input => { const result = sessions.act(SessionActionSchema.parse(input)); publish(); updateTray(); return result })
+  handle('data:export', async () => {
+    const selection = await dialog.showSaveDialog({ title: 'Export dAIly records', defaultPath: join(app.getPath('documents'), 'daily-records.json'), filters: [{ name: 'JSON records', extensions: ['json'] }] })
+    if (selection.canceled || !selection.filePath) return { cancelled: true }
+    const temporary = `${selection.filePath}.tmp-${process.pid}`
+    try { await writeFile(temporary, serializeExport(store.snapshot(), app.getVersion()), { encoding: 'utf8', mode: 0o600 }); await rename(temporary, selection.filePath) }
+    finally { await unlink(temporary).catch(() => undefined) }
+    return { cancelled: false, path: selection.filePath }
+  })
   const image = nativeImage.createFromPath(join(__dirname, '../../resources/icon.png'))
   tray = new Tray(image.resize({ width: 20, height: 20 })); tray.setToolTip('dAIly'); tray.on('double-click', openWindow); updateTray()
   applyLogin(); createWindow()
@@ -94,5 +104,5 @@ app.whenReady().then(() => {
   }, 1000)
   app.once('before-quit', () => { quitting = true; clearInterval(timer); sessions.suspend(false); ollama.cancel() })
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
-})
+}).catch(error => { dialog.showErrorBox('dAIly could not open', `Your records have not been deleted. ${String(error)}`); app.quit() })
 app.on('will-quit', () => store?.close())
