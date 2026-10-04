@@ -13,5 +13,9 @@ export interface HistoryPage {
   sessions: Snapshot['sessions']
   plans: Snapshot['plans']
   next: number | null
-  totals: { sessions: number; seconds: number }
+  totals: {
+    sessions: number
+    seconds: number
+    byGoal: { goalId: string; sessions: number; seconds: number }[]
+  }
 }

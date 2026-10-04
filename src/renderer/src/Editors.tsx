@@ -1,5 +1,8 @@
 import { useState } from 'react'
 import type { Config, Goal, Profile, Snapshot, Task, TimetableEntry } from '../../shared/state'
+import { explicitSubmit, MinutesInput } from './Inputs'
+import type { ScheduleImportResult } from '../../shared/timetable-import'
+import { GoalDiscussion } from './GoalDiscussion'
 
 export function configFrom(state: Snapshot): Config {
   return {
@@ -9,30 +12,77 @@ export function configFrom(state: Snapshot): Config {
     timetable: state.timetable,
   }
 }
+const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const timezoneOptions: string[] = (() => {
+  try {
+    return (
+      (
+        Intl as typeof Intl & { supportedValuesOf?: (key: 'timeZone') => string[] }
+      ).supportedValuesOf?.('timeZone') || []
+    )
+  } catch {
+    return []
+  }
+})()
 
 export function ProfileEditor({
   state,
   save,
   busy,
+  importSchedule,
 }: {
   state: Snapshot
-  save: (config: Config) => Promise<void>
+  save: (config: Config) => Promise<boolean>
   busy: boolean
+  importSchedule: () => Promise<ScheduleImportResult | undefined>
 }): React.JSX.Element {
   const [profile, setProfile] = useState<Profile>(state.profile)
   const [timetable, setTimetable] = useState<TimetableEntry[]>(state.timetable)
-  const [entry, setEntry] = useState({
-    title: 'College',
-    weekday: 1,
-    date: '',
-    start: '09:00',
-    end: '17:00',
-    cancelled: false,
-  })
+  const [entry, setEntry] = useState({ weekday: 1, start: '09:00', end: '17:00', cancelled: false })
+  const [method, setMethod] = useState<'manual' | 'upload'>('manual')
+  const [schedule, setSchedule] = useState<ScheduleImportResult>()
+  const [scheduleDraft, setScheduleDraft] = useState<
+    Record<number, { start: string; end: string; off: boolean }>
+  >({})
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
   const field = <K extends keyof Profile>(key: K, value: Profile[K]): void =>
     setProfile((old) => ({ ...old, [key]: value }))
+  const applyExtracted = (): void => {
+    if (!schedule) return
+    const imported = [] as TimetableEntry[]
+    for (const weekday of weekdays.keys()) {
+      const found = schedule.extraction.days.find((day) => day.weekday === weekday),
+        edit = scheduleDraft[weekday]
+      if (edit?.off) continue
+      const start = edit?.start ?? found?.start ?? '',
+        end = edit?.end ?? found?.end ?? ''
+      if (!start && !end) continue
+      if (!start || !end || end <= start) {
+        setUploadError(
+          'Finish both times for ' + weekdays[weekday] + ' or mark that day as no college.',
+        )
+        return
+      }
+      imported.push({
+        id: crypto.randomUUID(),
+        weekday,
+        date: null,
+        title: 'College',
+        start,
+        end,
+        cancelled: false,
+      })
+    }
+    setTimetable([
+      ...timetable.filter((item) => item.date || item.title !== 'College'),
+      ...imported,
+    ])
+    setSchedule(undefined)
+  }
   return (
     <form
+      onKeyDown={explicitSubmit}
       onSubmit={(event) => {
         event.preventDefault()
         void save({
@@ -42,178 +92,320 @@ export function ProfileEditor({
         })
       }}
     >
-      <h2>{state.profile.onboardingComplete ? 'Your day' : 'Set up your day'}</h2>
-      <p className="notice">These are starting values. Change them to match your actual routine.</p>
-      <div className="form-grid">
-        <label>
-          Name
-          <input required value={profile.name} onChange={(e) => field('name', e.target.value)} />
-        </label>
-        <label>
-          Timezone
-          <input
-            required
-            value={profile.timezone}
-            onChange={(e) => field('timezone', e.target.value)}
-          />
-        </label>
-        <label>
-          Usual bedtime
-          <input
-            type="time"
-            required
-            value={profile.bedtime}
-            onChange={(e) => field('bedtime', e.target.value)}
-          />
-        </label>
-        <label>
-          Usual wake time
-          <input
-            type="time"
-            required
-            value={profile.wakeTime}
-            onChange={(e) => field('wakeTime', e.target.value)}
-          />
-        </label>
-        <label>
-          Commute, minutes
-          <input
-            type="number"
-            min="0"
-            max="240"
-            value={profile.commuteMinutes}
-            onChange={(e) => field('commuteMinutes', Number(e.target.value))}
-          />
-        </label>
-        <label>
-          Focus block, minutes
-          <input
-            type="number"
-            min="5"
-            max="120"
-            value={profile.focusMinutes}
-            onChange={(e) => field('focusMinutes', Number(e.target.value))}
-          />
-        </label>
-        <label>
-          Break, minutes
-          <input
-            type="number"
-            min="5"
-            max="60"
-            value={profile.breakMinutes}
-            onChange={(e) => field('breakMinutes', Number(e.target.value))}
-          />
-        </label>
-      </div>
+      <h2>{state.profile.onboardingComplete ? 'Your preferences' : 'Let us know who you are'}</h2>
+      <p className="notice">
+        Tell dAIly the basics that shape a realistic day. You can change any of this later.
+      </p>
       <section>
-        <h2>College schedule</h2>
-        <p className="notice">
-          Add weekly classes, or use a date to replace that day's weekly schedule. A cancelled dated
-          entry marks a day off.
-        </p>
-        {timetable.map((item) => (
-          <div className="row" key={item.id}>
-            <div className="row-main">
-              <h3>{item.title}</h3>
-              <p>
-                {item.date ||
-                  ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][
-                    item.weekday
-                  ]}{' '}
-                · {item.cancelled ? 'Day off' : `${item.start} to ${item.end}`}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setEntry({ ...item, date: item.date || '' })
-                setTimetable((old) => old.filter((value) => value.id !== item.id))
-              }}
-            >
-              Edit
-            </button>
-            <button
-              type="button"
-              onClick={() => setTimetable((old) => old.filter((value) => value.id !== item.id))}
-            >
-              Remove
-            </button>
-          </div>
-        ))}
-        <div className="inline-fields">
+        <h2>Your routine</h2>
+        <p className="muted">This helps dAIly estimate the time and structure that work for you.</p>
+        <div className="form-grid">
           <label>
-            Class
-            <input
-              value={entry.title}
-              onChange={(e) => setEntry({ ...entry, title: e.target.value })}
-            />
+            Name
+            <input required value={profile.name} onChange={(e) => field('name', e.target.value)} />
           </label>
           <label>
-            Weekday
-            <select
-              value={entry.weekday}
-              onChange={(e) => setEntry({ ...entry, weekday: Number(e.target.value) })}
-            >
-              {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map(
-                (day, i) => (
-                  <option value={i} key={day}>
-                    {day}
-                  </option>
-                ),
+            Timezone
+            <select value={profile.timezone} onChange={(e) => field('timezone', e.target.value)}>
+              {!timezoneOptions.includes(profile.timezone) && (
+                <option value={profile.timezone}>{profile.timezone}</option>
               )}
+              {timezoneOptions.map((zone) => (
+                <option key={zone} value={zone}>
+                  {zone.replaceAll('_', ' ')}
+                </option>
+              ))}
             </select>
           </label>
           <label>
-            Specific date
+            Usual bedtime
             <input
-              type="date"
-              value={entry.date}
-              onChange={(e) => setEntry({ ...entry, date: e.target.value })}
+              type="time"
+              required
+              value={profile.bedtime}
+              onChange={(e) => field('bedtime', e.target.value)}
             />
           </label>
           <label>
-            Starts
+            Usual wake time
             <input
               type="time"
-              value={entry.start}
-              onChange={(e) => setEntry({ ...entry, start: e.target.value })}
+              required
+              value={profile.wakeTime}
+              onChange={(e) => field('wakeTime', e.target.value)}
             />
           </label>
           <label>
-            Ends
+            Commute, minutes
             <input
-              type="time"
-              value={entry.end}
-              onChange={(e) => setEntry({ ...entry, end: e.target.value })}
+              type="number"
+              min="0"
+              max="240"
+              value={profile.commuteMinutes}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                if (e.target.value && Number.isInteger(v)) field('commuteMinutes', v)
+              }}
             />
           </label>
-        </div>
-        <div className="actions">
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={entry.cancelled}
-              onChange={(e) => setEntry({ ...entry, cancelled: e.target.checked })}
+          <label>
+            Usual focus block, minutes
+            <MinutesInput
+              value={profile.focusMinutes}
+              onChange={(value) => {
+                if (value !== null) field('focusMinutes', value)
+              }}
             />
-            Day off
           </label>
-          <button
-            type="button"
-            disabled={!entry.title.trim() || (!entry.cancelled && entry.end <= entry.start)}
-            onClick={() =>
-              setTimetable((old) => [
-                ...old,
-                { ...entry, date: entry.date || null, id: crypto.randomUUID() },
-              ])
-            }
-          >
-            Add to schedule
-          </button>
+          <label>
+            Break between blocks, minutes
+            <MinutesInput
+              min={5}
+              max={60}
+              value={profile.breakMinutes}
+              onChange={(value) => {
+                if (value !== null) field('breakMinutes', value)
+              }}
+            />
+          </label>
         </div>
       </section>
       <section>
+        <h2>College schedule</h2>
+        <p className="muted">
+          Add recurring start and end times by weekday. dAIly reserves the whole interval as
+          college.
+        </p>
+        <div className="actions" role="group" aria-label="College schedule entry method">
+          <button
+            type="button"
+            aria-pressed={method === 'manual'}
+            onClick={() => setMethod('manual')}
+          >
+            Enter manually
+          </button>
+          <button
+            type="button"
+            aria-pressed={method === 'upload'}
+            onClick={() => setMethod('upload')}
+          >
+            Upload a timetable
+          </button>
+        </div>
+        {method === 'manual' ? (
+          <div className="inline-fields">
+            <label>
+              Weekday
+              <select
+                value={entry.weekday}
+                onChange={(e) => setEntry({ ...entry, weekday: Number(e.target.value) })}
+              >
+                {weekdays.map((day, i) => (
+                  <option key={day} value={i}>
+                    {day}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              College starts
+              <input
+                type="time"
+                value={entry.start}
+                disabled={entry.cancelled}
+                onChange={(e) => setEntry({ ...entry, start: e.target.value })}
+              />
+            </label>
+            <label>
+              College ends
+              <input
+                type="time"
+                value={entry.end}
+                disabled={entry.cancelled}
+                onChange={(e) => setEntry({ ...entry, end: e.target.value })}
+              />
+            </label>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={entry.cancelled}
+                onChange={(e) => setEntry({ ...entry, cancelled: e.target.checked })}
+              />
+              No college this weekday
+            </label>
+            <button
+              type="button"
+              disabled={!entry.cancelled && entry.end <= entry.start}
+              onClick={() => {
+                const old = timetable.filter(
+                  (item) => item.date || item.weekday !== entry.weekday || item.title !== 'College',
+                )
+                setTimetable([
+                  ...old,
+                  {
+                    id: crypto.randomUUID(),
+                    title: 'College',
+                    weekday: entry.weekday,
+                    date: null,
+                    start: entry.start,
+                    end: entry.end,
+                    cancelled: entry.cancelled,
+                  },
+                ])
+              }}
+            >
+              Add weekday
+            </button>
+          </div>
+        ) : (
+          <div>
+            <p className="muted">
+              Choose an image, CSV, or Excel file. Gemma reads it on this laptop, then asks you to
+              check the weekly times before saving.
+            </p>
+            <button
+              type="button"
+              disabled={uploading}
+              onClick={() => {
+                setUploading(true)
+                setUploadError('')
+                setSchedule(undefined)
+                void importSchedule()
+                  .then((value) => {
+                    setSchedule(value)
+                    setScheduleDraft(
+                      Object.fromEntries(
+                        (value?.extraction.days || []).map((day) => [
+                          day.weekday,
+                          { start: day.start, end: day.end, off: false },
+                        ]),
+                      ),
+                    )
+                    if (!value) setUploadError('No file selected.')
+                  })
+                  .catch((error) => setUploadError(String(error)))
+                  .finally(() => setUploading(false))
+              }}
+            >
+              {uploading ? 'Reading timetable…' : 'Choose timetable file'}
+            </button>
+            {uploading && (
+              <button type="button" onClick={() => void window.dAIly?.cancelModel()}>
+                Cancel upload
+              </button>
+            )}
+            {uploadError && (
+              <p role="alert" className="error">
+                {uploadError}
+              </p>
+            )}
+            {schedule && (
+              <div className="schedule-review">
+                <h3>Check the times dAIly found</h3>
+                <p className="muted">
+                  {schedule.filename}. These entries repeat each week. Edit unclear times before
+                  saving.
+                </p>
+                {schedule.extraction.questions.map((q, i) => (
+                  <p className="notice" key={i}>
+                    {q}
+                  </p>
+                ))}
+                {weekdays.map((day, weekday) => {
+                  const found = schedule.extraction.days.find((item) => item.weekday === weekday),
+                    edit = scheduleDraft[weekday]
+                  return (
+                    <div className="inline-fields" key={day}>
+                      <strong>{day}</strong>
+                      <label>
+                        Starts
+                        <input
+                          aria-label={day + ' college starts'}
+                          type="time"
+                          disabled={edit?.off}
+                          value={edit?.start ?? found?.start ?? ''}
+                          onChange={(e) =>
+                            setScheduleDraft((old) => ({
+                              ...old,
+                              [weekday]: {
+                                start: e.target.value,
+                                end: old[weekday]?.end ?? found?.end ?? '',
+                                off: false,
+                              },
+                            }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        Ends
+                        <input
+                          aria-label={day + ' college ends'}
+                          type="time"
+                          disabled={edit?.off}
+                          value={edit?.end ?? found?.end ?? ''}
+                          onChange={(e) =>
+                            setScheduleDraft((old) => ({
+                              ...old,
+                              [weekday]: {
+                                start: old[weekday]?.start ?? found?.start ?? '',
+                                end: e.target.value,
+                                off: false,
+                              },
+                            }))
+                          }
+                        />
+                      </label>
+                      <label className="checkbox">
+                        <input
+                          type="checkbox"
+                          checked={edit?.off ?? false}
+                          onChange={(e) =>
+                            setScheduleDraft((old) => ({
+                              ...old,
+                              [weekday]: {
+                                start: old[weekday]?.start ?? found?.start ?? '',
+                                end: old[weekday]?.end ?? found?.end ?? '',
+                                off: e.target.checked,
+                              },
+                            }))
+                          }
+                        />
+                        No college
+                      </label>
+                    </div>
+                  )
+                })}
+                <button type="button" className="primary" onClick={applyExtracted}>
+                  Use this recurring schedule
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+        {timetable
+          .filter((item) => item.title === 'College')
+          .sort((a, b) => a.weekday - b.weekday)
+          .map((item) => (
+            <div className="row" key={item.id}>
+              <p className="row-main">
+                {weekdays[item.weekday]} ·{' '}
+                {item.cancelled ? 'No college' : item.start + ' to ' + item.end}
+                <small>Weekly</small>
+              </p>
+              <button
+                type="button"
+                onClick={() => setTimetable((old) => old.filter((value) => value.id !== item.id))}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+      </section>
+      <section>
         <h2>Check-ins and quiet hours</h2>
+        <p className="muted">
+          Choose whether dAIly can remind you and when notifications should stay quiet.
+        </p>
         <label className="checkbox">
           <input
             type="checkbox"
@@ -230,11 +422,20 @@ export function ProfileEditor({
           />
           Ask how the day changed after my expected commute
         </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={profile.quietDuringSleep || false}
+            onChange={(e) => field('quietDuringSleep', e.target.checked)}
+          />
+          Quiet hours match my sleep time
+        </label>
         <div className="form-grid">
           <label>
             Quiet hours start
             <input
               type="time"
+              disabled={profile.quietDuringSleep}
               value={profile.quietStart}
               onChange={(e) => field('quietStart', e.target.value)}
             />
@@ -243,6 +444,7 @@ export function ProfileEditor({
             Quiet hours end
             <input
               type="time"
+              disabled={profile.quietDuringSleep}
               value={profile.quietEnd}
               onChange={(e) => field('quietEnd', e.target.value)}
             />
@@ -259,7 +461,7 @@ export function ProfileEditor({
       </section>
       <div className="actions">
         <button className="primary" disabled={busy}>
-          {busy ? 'Saving...' : 'Save preferences'}
+          {busy ? 'Saving…' : 'Save preferences'}
         </button>
       </div>
     </form>
@@ -270,28 +472,51 @@ export function GoalsEditor({
   state,
   save,
   busy,
+  navigate,
+  onDirty,
 }: {
   state: Snapshot
-  save: (config: Config) => Promise<void>
+  save: (config: Config) => Promise<boolean>
   busy: boolean
+  navigate: (page: 'Today') => void
+  onDirty: (dirty: boolean) => void
 }): React.JSX.Element {
   const [goals, setGoals] = useState<Goal[]>(state.goals)
   const [tasks, setTasks] = useState<Task[]>(state.tasks)
   const [title, setTitle] = useState('')
-  const updateGoal = (id: string, patch: Partial<Goal>): void =>
+  const updateGoal = (id: string, patch: Partial<Goal>): void => {
+    onDirty(true)
     setGoals((old) => old.map((goal) => (goal.id === id ? { ...goal, ...patch } : goal)))
-  const updateTask = (id: string, patch: Partial<Task>): void =>
+  }
+  const updateTask = (id: string, patch: Partial<Task>): void => {
+    onDirty(true)
     setTasks((old) => old.map((task) => (task.id === id ? { ...task, ...patch } : task)))
+  }
+  const saveDraft = async (): Promise<boolean> => {
+    const saved = await save({ ...configFrom(state), goals, tasks })
+    if (saved) onDirty(false)
+    return saved
+  }
+  const acceptSaved = (next: Snapshot): void => {
+    setGoals(next.goals)
+    setTasks(next.tasks)
+    onDirty(false)
+  }
+  const sorted = (goalId: string): Task[] =>
+    tasks
+      .filter((task) => task.goalId === goalId)
+      .sort((a, b) => (a.deadline || '9999').localeCompare(b.deadline || '9999'))
   return (
     <form
+      onKeyDown={explicitSubmit}
       onSubmit={(event) => {
         event.preventDefault()
-        void save({ ...configFrom(state), goals, tasks })
+        void saveDraft()
       }}
     >
       <p className="notice">
-        Start with a few goals. Give each one a concrete next step. Priority 1 is the most
-        important.
+        Your goals compete for the same time. Priority 5 is most important. Add the effort you hope
+        to spend on a goal each day; dAIly will adjust its suggestions as today changes.
       </p>
       {goals.map((goal) => (
         <section key={goal.id}>
@@ -305,7 +530,7 @@ export function GoalsEditor({
               />
             </label>
             <label>
-              Priority
+              Priority, 5 is highest
               <select
                 value={goal.priority}
                 onChange={(e) => updateGoal(goal.id, { priority: Number(e.target.value) })}
@@ -325,9 +550,20 @@ export function GoalsEditor({
                 onChange={(e) => updateGoal(goal.id, { deadline: e.target.value || null })}
               />
             </label>
+            <label>
+              Preferred time per day, minutes
+              <MinutesInput
+                min={5}
+                max={720}
+                value={goal.preferredDailyMinutes ?? null}
+                placeholder="Optional"
+                onChange={(value) => updateGoal(goal.id, { preferredDailyMinutes: value })}
+              />
+            </label>
             <button
               type="button"
               onClick={() => {
+                onDirty(true)
                 setGoals((old) => old.filter((item) => item.id !== goal.id))
                 setTasks((old) => old.filter((task) => task.goalId !== goal.id))
               }}
@@ -335,77 +571,112 @@ export function GoalsEditor({
               Remove goal
             </button>
           </div>
-          {tasks
-            .filter((task) => task.goalId === goal.id)
-            .map((task) => (
-              <div className="row" key={task.id}>
-                <div className="inline-fields row-main">
-                  <label>
-                    Next task
-                    <input
-                      required
-                      value={task.title}
-                      onChange={(e) => updateTask(task.id, { title: e.target.value })}
-                    />
-                  </label>
-                  <label>
-                    Minutes
-                    <input
-                      type="number"
-                      min="5"
-                      max="480"
-                      value={task.estimateMinutes}
-                      onChange={(e) =>
-                        updateTask(task.id, { estimateMinutes: Number(e.target.value) })
-                      }
-                    />
-                  </label>
-                  <label>
-                    Task deadline
-                    <input
-                      type="date"
-                      value={task.deadline || ''}
-                      onChange={(e) => updateTask(task.id, { deadline: e.target.value || null })}
-                    />
-                  </label>
-                  <label className="checkbox">
-                    <input
-                      type="checkbox"
-                      checked={task.status === 'done'}
-                      onChange={(e) =>
-                        updateTask(task.id, { status: e.target.checked ? 'done' : 'todo' })
-                      }
-                    />
-                    Done
-                  </label>
-                </div>
-                <button
-                  type="button"
-                  aria-label={`Remove ${task.title || 'task'}`}
-                  onClick={() => setTasks((old) => old.filter((item) => item.id !== task.id))}
-                >
-                  Remove
-                </button>
+          <label>
+            What matters about this goal?
+            <textarea
+              maxLength={2000}
+              placeholder="Optional context, constraints, or what success looks like"
+              value={goal.notes || ''}
+              onChange={(e) => updateGoal(goal.id, { notes: e.target.value })}
+            />
+          </label>
+          <label>
+            Notes about the daily time target, optional
+            <input
+              maxLength={500}
+              placeholder="For example, longer sessions on weekends"
+              value={goal.preferredDailyNote || ''}
+              onChange={(e) => updateGoal(goal.id, { preferredDailyNote: e.target.value })}
+            />
+          </label>
+          <h3>Next steps</h3>
+          <p className="muted">
+            Task estimate means total effort for that task. Leave it blank if unsure. dAIly suggests
+            how much to do in each focus block.
+          </p>
+          {sorted(goal.id).map((task) => (
+            <div className="row" key={task.id}>
+              <div className="inline-fields row-main">
+                <label>
+                  Task
+                  <input
+                    required
+                    value={task.title}
+                    onChange={(e) => updateTask(task.id, { title: e.target.value })}
+                  />
+                </label>
+                <label>
+                  Estimated total minutes
+                  <MinutesInput
+                    min={5}
+                    max={100000}
+                    value={task.estimateMinutes ?? null}
+                    placeholder="Not sure"
+                    onChange={(value) => updateTask(task.id, { estimateMinutes: value })}
+                  />
+                </label>
+                <label>
+                  Target date
+                  <input
+                    type="date"
+                    value={task.deadline || ''}
+                    onChange={(e) => updateTask(task.id, { deadline: e.target.value || null })}
+                  />
+                </label>
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={task.status === 'done'}
+                    onChange={(e) =>
+                      updateTask(task.id, { status: e.target.checked ? 'done' : 'todo' })
+                    }
+                  />
+                  Done
+                </label>
               </div>
-            ))}
-          <button
-            type="button"
-            onClick={() =>
-              setTasks((old) => [
-                ...old,
-                {
-                  id: crypto.randomUUID(),
-                  goalId: goal.id,
-                  title: '',
-                  estimateMinutes: state.profile.focusMinutes,
-                  deadline: null,
-                  status: 'todo',
-                },
-              ])
-            }
-          >
-            Add next step
-          </button>
+              <button
+                type="button"
+                aria-label={'Remove ' + (task.title || 'task')}
+                onClick={() => {
+                  onDirty(true)
+                  setTasks((old) => old.filter((item) => item.id !== task.id))
+                }}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+          <div className="actions">
+            <button
+              type="button"
+              onClick={() => {
+                onDirty(true)
+                setTasks((old) => [
+                  ...old,
+                  {
+                    id: crypto.randomUUID(),
+                    goalId: goal.id,
+                    title: '',
+                    estimateMinutes: null,
+                    deadline: null,
+                    status: 'todo',
+                  },
+                ])
+              }}
+            >
+              Add next step
+            </button>
+            <button type="button" onClick={() => navigate('Today')}>
+              Plan my day with this goal
+            </button>
+          </div>
+          <GoalDiscussion
+            goal={goal}
+            tasks={sorted(goal.id)}
+            state={state}
+            save={saveDraft}
+            onSaved={acceptSaved}
+          />
         </section>
       ))}
       <div className="inline-fields">
@@ -419,21 +690,30 @@ export function GoalsEditor({
         </label>
         <button
           type="button"
-          disabled={!title.trim()}
+          disabled={!title.trim() || busy}
           onClick={() => {
-            setGoals((old) => [
-              ...old,
-              { id: crypto.randomUUID(), title: title.trim(), priority: 3, deadline: null },
-            ])
+            const next: Goal = {
+              id: crypto.randomUUID(),
+              title: title.trim(),
+              priority: 3,
+              deadline: null,
+              preferredDailyMinutes: null,
+            }
+            const nextGoals = [...goals, next]
+            setGoals(nextGoals)
+            onDirty(true)
             setTitle('')
+            void save({ ...configFrom(state), goals: nextGoals, tasks }).then((saved) =>
+              onDirty(!saved),
+            )
           }}
         >
-          Add goal
+          Add and save goal
         </button>
       </div>
       <div className="actions">
         <button className="primary" disabled={busy}>
-          {busy ? 'Saving...' : 'Save goals'}
+          {busy ? 'Saving…' : 'Save goals'}
         </button>
       </div>
     </form>

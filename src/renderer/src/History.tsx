@@ -56,6 +56,9 @@ export function History({ state }: { state: Snapshot }): React.JSX.Element {
   const visible = page?.kind === kind ? page : undefined
   return (
     <>
+      <p className="muted">
+        See how planned focus time compares with the work you report, including totals by goal.
+      </p>
       <div className="actions">
         <button aria-pressed={kind === 'sessions'} onClick={() => setKind('sessions')}>
           Reported work
@@ -77,6 +80,26 @@ export function History({ state }: { state: Snapshot }): React.JSX.Element {
             {visible.totals.sessions} reported sessions · {Math.round(visible.totals.seconds / 60)}{' '}
             reported focus minutes
           </p>
+          {kind === 'sessions' && !!visible.totals.byGoal.length && (
+            <section>
+              <h3>Focus time by goal</h3>
+              <p className="muted">Reported session time across your saved history.</p>
+              <ul className="plain-list">
+                {visible.totals.byGoal.map((row) => {
+                  const goal = state.goals.find((item) => item.id === row.goalId)
+                  return (
+                    <li key={row.goalId}>
+                      <strong>{goal?.title || 'Removed goal'}</strong>
+                      <small>
+                        {Math.floor(row.seconds / 3600)} h {Math.round((row.seconds % 3600) / 60)}{' '}
+                        min · {row.sessions} sessions
+                      </small>
+                    </li>
+                  )
+                })}
+              </ul>
+            </section>
+          )}
           {kind === 'sessions' && (
             <ul className="plain-list">
               {visible.sessions.map((s) => (
