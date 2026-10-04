@@ -27,6 +27,7 @@ export function MinutesInput({
   placeholder?: string
 }): React.JSX.Element {
   const [draft, setDraft] = useState(value === null ? '' : String(value))
+  const [editing, setEditing] = useState(false)
   return (
     <input
       type="number"
@@ -34,9 +35,10 @@ export function MinutesInput({
       max={max}
       step="1"
       required={required}
-      value={draft}
+      value={editing ? draft : value === null ? '' : String(value)}
       placeholder={placeholder}
       onFocus={(event) => {
+        setEditing(true)
         setDraft(value === null ? '' : String(value))
         event.currentTarget.select()
       }}
@@ -45,6 +47,7 @@ export function MinutesInput({
         setDraft(text)
       }}
       onBlur={() => {
+        setEditing(false)
         if (!draft) {
           onChange(null)
           return
