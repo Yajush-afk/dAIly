@@ -6,9 +6,17 @@ if [[ "${EUID}" -eq 0 ]]; then
   echo "Run this as your regular desktop user. sudo is requested only for system setup."
   exit 1
 fi
-mode="${1:---demo}"
-if [[ "$mode" != --demo && "$mode" != --normal ]]; then
-  echo "Usage: ./start-ubuntu.sh [--demo|--normal]"
+mode=--demo
+reset=false
+for argument in "$@"; do
+  case "$argument" in
+    --demo|--normal|--seed-only) mode="$argument" ;;
+    --reset) reset=true ;;
+    *) echo "Usage: ./start-ubuntu.sh [--demo|--normal|--seed-only] [--reset]"; exit 1 ;;
+  esac
+done
+if [[ "$mode" == --normal && "$reset" == true ]]; then
+  echo "Reset is supported only for the isolated demo database."
   exit 1
 fi
 sudo apt-get update
@@ -28,25 +36,34 @@ if ! command -v node >/dev/null || [[ "$(node -p 'process.versions.node.split(".
   tar -xf "artifacts/bootstrap/$archive" -C artifacts/bootstrap
   export PATH="$PWD/artifacts/bootstrap/${archive%.tar.xz}/bin:$PATH"
 fi
-if ! command -v ollama >/dev/null; then
-  curl --fail --show-error --location https://ollama.com/install.sh -o artifacts-ollama-install.sh
-  trap 'rm -f artifacts-ollama-install.sh' EXIT
-  sh artifacts-ollama-install.sh
-  rm -f artifacts-ollama-install.sh
-fi
-mkdir -p artifacts/bootstrap
-if ! curl --fail --silent http://127.0.0.1:11434/api/tags >/dev/null; then
-  nohup ollama serve > artifacts/bootstrap/ollama.log 2>&1 &
-  for attempt in {1..60}; do
-    if curl --fail --silent http://127.0.0.1:11434/api/tags >/dev/null; then break; fi
-    sleep 1
-  done
-  curl --fail --silent http://127.0.0.1:11434/api/tags >/dev/null || { echo "Ollama did not start. See artifacts/bootstrap/ollama.log"; exit 1; }
+if [[ "$mode" != --seed-only ]]; then
+  if ! command -v ollama >/dev/null; then
+    curl --fail --show-error --location https://ollama.com/install.sh -o artifacts-ollama-install.sh
+    trap 'rm -f artifacts-ollama-install.sh' EXIT
+    sh artifacts-ollama-install.sh
+    rm -f artifacts-ollama-install.sh
+  fi
+  mkdir -p artifacts/bootstrap
+  if ! curl --fail --silent http://127.0.0.1:11434/api/tags >/dev/null; then
+    nohup ollama serve > artifacts/bootstrap/ollama.log 2>&1 &
+    for attempt in {1..60}; do
+      if curl --fail --silent http://127.0.0.1:11434/api/tags >/dev/null; then break; fi
+      sleep 1
+    done
+    curl --fail --silent http://127.0.0.1:11434/api/tags >/dev/null || { echo "Ollama did not start. See artifacts/bootstrap/ollama.log"; exit 1; }
+  fi
 fi
 npm ci
 # npm ci replaces this file; repair the sandbox after every dependency installation.
 sandbox="$PWD/node_modules/electron/dist/chrome-sandbox"
 sudo chown root:root "$sandbox"
 sudo chmod 4755 "$sandbox"
-ollama pull gemma3:4b-it-q4_K_M
-if [[ "$mode" == --normal ]]; then npm run dev; else npm run demo; fi
+if [[ "$mode" != --seed-only ]]; then ollama pull gemma3:4b-it-q4_K_M; fi
+if [[ "$mode" == --normal ]]; then
+  npm run dev
+else
+  demo_args=()
+  if [[ "$reset" == true ]]; then demo_args+=(--reset); fi
+  if [[ "$mode" == --seed-only ]]; then demo_args+=(--seed-only); fi
+  npm run demo -- "${demo_args[@]}"
+fi
