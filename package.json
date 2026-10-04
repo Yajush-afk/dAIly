@@ -18,7 +18,7 @@
     "check": "npm run format:check && npm run typecheck && npm run lint && npm test && npm run build",
     "package": "npm run build && electron-builder --publish never",
     "package:win": "npm run build && electron-builder --win --x64 --publish never",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "node node_modules/electron/install.js && electron-builder install-app-deps",
     "data:path": "node scripts/data-path.mjs",
     "format": "prettier --write src tests scripts *.ts *.mjs *.json docs README.md .github/workflows/windows.yml",
     "format:check": "prettier --check src tests scripts *.ts *.mjs *.json docs README.md .github/workflows/windows.yml",

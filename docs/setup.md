@@ -44,7 +44,7 @@ The installer excludes models, databases, environment files, logs, and developme
 
 ## Development
 
-Use Node 24 and npm. Run `npm ci`, then `npm run dev`. `npm run check` includes type checks, lint, tests, and production bundling. `npm run test:desktop` uses a separate test database and produces smoke reports. `npm run evaluate:gemma` runs the real local model scenarios. `npm run package:win` must run on Windows for the supported installer build.
+Use Node 24 and npm. Run `npm ci`, then `npm run dev`. The postinstall command explicitly downloads the pinned Electron binary before rebuilding SQLite for Electron. The first installation needs internet; subsequent installations can reuse Electron's download cache. `npm run check` includes type checks, lint, tests, and production bundling. `npm run test:desktop` uses a separate test database and produces smoke reports. `npm run evaluate:gemma` runs the real local model scenarios. `npm run package:win` must run on Windows for the supported installer build.
 
 The dev launcher removes inherited `ELECTRON_RUN_AS_NODE`, which some coding environments set. If a Linux development host has an unusable SUID sandbox helper, fix the Electron sandbox installation or run a development smoke only with `DAILY_LINUX_NO_SANDBOX=1`. The shipped Windows application does not disable its sandbox.
 
@@ -84,7 +84,9 @@ curl -fsS http://127.0.0.1:11434/api/tags
 ollama pull gemma3:4b-it-q4_K_M
 ```
 
-Pull reuses existing model files. This machine's Electron dependency currently needs its sandbox helper permissions repaired after `npm ci`:
+Pull reuses existing model files. If an older checkout reports `Electron uninstall`, run `npm run postinstall` to install the binary before starting development. No database reset or model download is needed for this error.
+
+This machine's Electron dependency currently needs its sandbox helper permissions repaired after `npm ci`:
 
 ```bash
 sudo chown root:root node_modules/electron/dist/chrome-sandbox
