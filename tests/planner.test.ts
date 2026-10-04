@@ -85,6 +85,45 @@ describe('deterministic planning', () => {
       ),
     ).toThrow('unknown')
   })
+  it('keeps the plan summary aligned with the task that fits', () => {
+    const s = scenario(),
+      secondTask = randomUUID()
+    s.goals.push({ id: randomUUID(), title: 'DSA', priority: 2, deadline: null })
+    const dsaGoal = s.goals.at(-1)!
+    s.tasks.push({
+      id: secondTask,
+      goalId: dsaGoal.id,
+      title: 'Solve one graph problem',
+      estimateMinutes: 30,
+      deadline: null,
+      status: 'todo',
+    })
+    s.profile = { ...s.profile, breakMinutes: 10 }
+    s.checkIns.push({
+      id: randomUUID(),
+      at: new Date(now).toISOString(),
+      availableUntil: new Date(now + 20 * 60000).toISOString(),
+      energy: 'low',
+      note: '',
+      busy: [],
+    })
+    const plan = schedule(
+      s,
+      {
+        kind: 'propose_plan',
+        summary: 'Revise graphs, then solve a problem.',
+        choices: [
+          { taskId: s.tasks[0].id, minutes: 10, reason: 'Review for the exam.' },
+          { taskId: secondTask, minutes: 20, reason: 'Keep up with DSA.' },
+        ],
+        deferred: [],
+      },
+      now,
+    )
+    expect(plan.blocks.filter((block) => block.kind === 'focus')).toHaveLength(1)
+    expect(plan.summary).toContain('Revise graphs')
+    expect(plan.summary).not.toContain('Solve one graph problem')
+  })
   it('rejects renamed copies and no-op preference suggestions', () => {
     const s = scenario()
     expect(() =>

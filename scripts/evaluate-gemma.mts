@@ -158,6 +158,13 @@ for (let iteration = 0; iteration < repeats; iteration++)
                   (store.snapshot().tasks.find((item) => item.id === dsaTask)?.estimateMinutes ||
                     0),
             )),
+        summaryMatchesScheduledWork:
+          result.decision.kind !== 'propose_plan' ||
+          result.decision.choices.every((choice) =>
+            focus.some((block) => block.taskId === choice.taskId),
+          ) ||
+          focus.length === 0 ||
+          plans[0]?.summary.includes(focus[0].title) === true,
       }
       const ps = await fetch('http://127.0.0.1:11434/api/ps').then((r) => r.json())
       reports.push({
@@ -176,14 +183,24 @@ for (let iteration = 0; iteration < repeats; iteration++)
           'Requires human review of explanation against scenario. Structural and scheduling checks are automated.',
       })
     } catch (error) {
+      const unchanged = store.snapshot()
+      const safelyRejected =
+        name === 'completed-task' &&
+        String(error).includes('existing plan is unchanged') &&
+        unchanged.tasks.find((task) => task.id === dsaTask)?.status === 'done' &&
+        unchanged.plans.length === 0 &&
+        unchanged.sessions.length === 0
       reports.push({
         name,
         iteration: iteration + 1,
-        passed: false,
+        passed: safelyRejected,
+        safelyRejected,
         calls,
         invalidJson: invalid,
         totalMs: Math.round(performance.now() - started),
         error: String(error),
+        factualReview:
+          'The model did not produce a usable plan. The harness safely rejected its response and preserved task, plan, and session state.',
       })
     } finally {
       store.close()

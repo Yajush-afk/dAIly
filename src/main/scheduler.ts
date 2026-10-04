@@ -145,7 +145,7 @@ export function schedule(
     decision.choices.length && !blocks.length
       ? 'None of the suggested blocks fits your remaining availability. Stop here or ask for a smaller next step.'
       : decision.choices.some((c) => !blocks.some((b) => b.taskId === c.taskId))
-        ? `${decision.summary} Some suggested work did not fit and is deferred below.`
+        ? `Start with ${blocks.find((block) => block.kind === 'focus')?.title}. Other suggested work did not fit and is deferred below.`
         : decision.summary
   return {
     id: randomUUID(),
