@@ -699,6 +699,11 @@ button {
   padding: 30px 24px 40px;
   scrollbar-width: thin;
 }
+.today-dashboard {
+  width: 100%;
+  max-width: 800px;
+  margin-inline: auto;
+}
 .page-intro {
   display: flex;
   align-items: flex-start;
