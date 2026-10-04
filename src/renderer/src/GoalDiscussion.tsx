@@ -1,6 +1,12 @@
 import { useState } from 'react'
 import type { Goal, Snapshot, Task } from '../../shared/state'
 import { GoalDecisionSchema, type GoalDiscussionResult } from '../../shared/goal-mentor'
+import { sendChatOnEnter } from './Inputs'
+
+const readableError = (reason: unknown): string =>
+  String(reason)
+    .replace(/^Error:\s*/, '')
+    .replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/, '')
 
 export function GoalDiscussion({
   goal,
@@ -57,7 +63,7 @@ export function GoalDiscussion({
   const [proposal, setProposal] = useState<GoalDiscussionResult | undefined>(restored)
   const [tasksDraft, setTasksDraft] = useState<
     { id: string | null; title: string; deadline: string | null; estimateMinutes: number | null }[]
-  >([])
+  >(restored?.decision.kind === 'roadmap' ? restored.decision.tasks : [])
   function updateRoadmap(
     patch: Partial<Extract<GoalDiscussionResult['decision'], { kind: 'roadmap' }>>,
   ): void {
@@ -78,7 +84,7 @@ export function GoalDiscussion({
       if (result.decision.kind === 'roadmap') setTasksDraft(result.decision.tasks)
       setText('')
     } catch (reason) {
-      setError(String(reason))
+      setError(readableError(reason))
     } finally {
       setPending(false)
     }
@@ -98,7 +104,7 @@ export function GoalDiscussion({
       onSaved(updated)
       setProposal(undefined)
     } catch (reason) {
-      setError(String(reason))
+      setError(readableError(reason))
     } finally {
       setPending(false)
     }
@@ -128,9 +134,13 @@ export function GoalDiscussion({
           value={text}
           maxLength={4000}
           onChange={(event) => setText(event.target.value)}
+          onKeyDown={(event) => sendChatOnEnter(event, () => void send())}
           placeholder="I want to prepare for interviews. How should I divide the topics?"
         />
       </label>
+      <p className="muted">
+        <small>Enter to send. Shift+Enter for a new line.</small>
+      </p>
       <button type="button" disabled={pending || !text.trim()} onClick={() => void send()}>
         {pending ? 'Thinking…' : 'Send'}
       </button>

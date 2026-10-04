@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { Config, Goal, Profile, Snapshot, Task, TimetableEntry } from '../../shared/state'
 import { explicitSubmit, MinutesInput } from './Inputs'
 import type { ScheduleImportResult } from '../../shared/timetable-import'
 import { GoalDiscussion } from './GoalDiscussion'
+import { NewGoalDialog } from './NewGoalDialog'
 
 export function configFrom(state: Snapshot): Config {
   return {
@@ -47,7 +48,14 @@ export function ProfileEditor({
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
   const field = <K extends keyof Profile>(key: K, value: Profile[K]): void =>
-    setProfile((old) => ({ ...old, [key]: value }))
+    setProfile((old) => {
+      const next = { ...old, [key]: value }
+      if (next.quietDuringSleep) {
+        next.quietStart = next.bedtime
+        next.quietEnd = next.wakeTime
+      }
+      return next
+    })
   const applyExtracted = (): void => {
     if (!schedule) return
     const imported = [] as TimetableEntry[]
@@ -93,7 +101,12 @@ export function ProfileEditor({
         event.preventDefault()
         void save({
           ...configFrom(state),
-          profile: { ...profile, onboardingComplete: true },
+          profile: {
+            ...profile,
+            onboardingComplete: true,
+            quietStart: profile.quietDuringSleep ? profile.bedtime : profile.quietStart,
+            quietEnd: profile.quietDuringSleep ? profile.wakeTime : profile.quietEnd,
+          },
           timetable,
         })
       }}
@@ -444,7 +457,7 @@ export function ProfileEditor({
             <input
               type="time"
               disabled={profile.quietDuringSleep}
-              value={profile.quietStart}
+              value={profile.quietDuringSleep ? profile.bedtime : profile.quietStart}
               onChange={(e) => field('quietStart', e.target.value)}
             />
           </label>
@@ -453,7 +466,7 @@ export function ProfileEditor({
             <input
               type="time"
               disabled={profile.quietDuringSleep}
-              value={profile.quietEnd}
+              value={profile.quietDuringSleep ? profile.wakeTime : profile.quietEnd}
               onChange={(e) => field('quietEnd', e.target.value)}
             />
           </label>
@@ -491,7 +504,16 @@ export function GoalsEditor({
 }): React.JSX.Element {
   const [goals, setGoals] = useState<Goal[]>(state.goals)
   const [tasks, setTasks] = useState<Task[]>(state.tasks)
-  const [title, setTitle] = useState('')
+  const [selectedId, setSelectedId] = useState<string | undefined>(state.goals[0]?.id)
+  const [view, setView] = useState<'edit' | 'list'>('edit')
+  const [creating, setCreating] = useState(false)
+  const newGoalButton = useRef<HTMLButtonElement>(null)
+  const closeCreation = (): void => {
+    setCreating(false)
+    queueMicrotask(() => newGoalButton.current?.focus())
+  }
+  const selectedIndex = goals.findIndex((goal) => goal.id === selectedId)
+  const selectedGoal = goals[selectedIndex]
   const updateGoal = (id: string, patch: Partial<Goal>): void => {
     onDirty(true)
     setGoals((old) => old.map((goal) => (goal.id === id ? { ...goal, ...patch } : goal)))
@@ -522,203 +544,274 @@ export function GoalsEditor({
         void saveDraft()
       }}
     >
-      <p className="notice">
-        Your goals compete for the same time. Priority 5 is most important. Add the effort you hope
-        to spend on a goal each day; dAIly will adjust its suggestions as today changes.
-      </p>
-      {goals.map((goal) => (
-        <section key={goal.id}>
-          <div className="inline-fields">
-            <label>
-              Goal
-              <input
-                required
-                value={goal.title}
-                onChange={(e) => updateGoal(goal.id, { title: e.target.value })}
-              />
-            </label>
-            <label>
-              Priority, 5 is highest
-              <select
-                value={goal.priority}
-                onChange={(e) => updateGoal(goal.id, { priority: Number(e.target.value) })}
-              >
-                {[1, 2, 3, 4, 5].map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
+      <div className="goal-toolbar">
+        <div className="actions">
+          <button
+            type="button"
+            className="outlined"
+            aria-label="Previous goal"
+            disabled={view !== 'edit' || selectedIndex <= 0}
+            onClick={() => setSelectedId(goals[selectedIndex - 1]?.id)}
+          >
+            ←
+          </button>
+          <button
+            type="button"
+            className="outlined"
+            aria-label="Next goal"
+            disabled={view !== 'edit' || selectedIndex < 0 || selectedIndex >= goals.length - 1}
+            onClick={() => setSelectedId(goals[selectedIndex + 1]?.id)}
+          >
+            →
+          </button>
+          {view === 'edit' && selectedGoal && (
+            <span className="muted">
+              {selectedIndex + 1} of {goals.length}
+            </span>
+          )}
+        </div>
+        <div className="actions">
+          <button
+            type="button"
+            className="outlined"
+            aria-pressed={view === 'list'}
+            onClick={() => setView(view === 'list' ? 'edit' : 'list')}
+          >
+            My Goals
+          </button>
+          <button
+            ref={newGoalButton}
+            type="button"
+            className="primary"
+            onClick={() => setCreating(true)}
+          >
+            New Goal
+          </button>
+        </div>
+      </div>
+      {creating && (
+        <NewGoalDialog
+          onClose={closeCreation}
+          create={async (goal) => {
+            const nextGoals = [...goals, goal]
+            if (!(await save({ ...configFrom(state), goals: nextGoals, tasks }))) return false
+            setGoals(nextGoals)
+            onDirty(false)
+            setSelectedId(goal.id)
+            setView('edit')
+            closeCreation()
+            return true
+          }}
+        />
+      )}
+      {view === 'list' && (
+        <section aria-label="My Goals">
+          {!goals.length && <p className="muted">Add your first goal with New Goal.</p>}
+          {goals.map((goal) => (
+            <details className="goal-summary" key={goal.id}>
+              <summary>{goal.title || 'Untitled goal'}</summary>
+              <p className="muted">
+                Priority {goal.priority}
+                {goal.deadline ? ` · Due ${goal.deadline}` : ''}
+              </p>
+              <ul>
+                {sorted(goal.id).map((task) => (
+                  <li key={task.id}>
+                    {task.title || 'Untitled subtask'}
+                    {task.deadline ? ` · ${task.deadline}` : ''}
+                    {task.status === 'done' ? ' · Done' : ''}
+                  </li>
                 ))}
-              </select>
-            </label>
-            <label>
-              Goal deadline
-              <input
-                type="date"
-                value={goal.deadline || ''}
-                onChange={(e) => updateGoal(goal.id, { deadline: e.target.value || null })}
-              />
-            </label>
-            <label>
-              Preferred time per day, minutes
-              <MinutesInput
-                min={5}
-                max={720}
-                value={goal.preferredDailyMinutes ?? null}
-                placeholder="Optional"
-                onChange={(value) => updateGoal(goal.id, { preferredDailyMinutes: value })}
-              />
-            </label>
-            <button
-              type="button"
-              onClick={() => {
-                onDirty(true)
-                setGoals((old) => old.filter((item) => item.id !== goal.id))
-                setTasks((old) => old.filter((task) => task.goalId !== goal.id))
-              }}
-            >
-              Remove goal
-            </button>
-          </div>
-          <label>
-            What matters about this goal?
-            <textarea
-              maxLength={2000}
-              placeholder="Optional context, constraints, or what success looks like"
-              value={goal.notes || ''}
-              onChange={(e) => updateGoal(goal.id, { notes: e.target.value })}
-            />
-          </label>
-          <label>
-            Notes about the daily time target, optional
-            <input
-              maxLength={500}
-              placeholder="For example, longer sessions on weekends"
-              value={goal.preferredDailyNote || ''}
-              onChange={(e) => updateGoal(goal.id, { preferredDailyNote: e.target.value })}
-            />
-          </label>
-          <h3>Next steps</h3>
-          <p className="muted">
-            Task estimate means total effort for that task. Leave it blank if unsure. dAIly suggests
-            how much to do in each focus block.
-          </p>
-          {sorted(goal.id).map((task) => (
-            <div className="row" key={task.id}>
-              <div className="inline-fields row-main">
-                <label>
-                  Task
-                  <input
-                    required
-                    value={task.title}
-                    onChange={(e) => updateTask(task.id, { title: e.target.value })}
-                  />
-                </label>
-                <label>
-                  Estimated total minutes
-                  <MinutesInput
-                    min={5}
-                    max={100000}
-                    value={task.estimateMinutes ?? null}
-                    placeholder="Not sure"
-                    onChange={(value) => updateTask(task.id, { estimateMinutes: value })}
-                  />
-                </label>
-                <label>
-                  Target date
-                  <input
-                    type="date"
-                    value={task.deadline || ''}
-                    onChange={(e) => updateTask(task.id, { deadline: e.target.value || null })}
-                  />
-                </label>
-                <label className="checkbox">
-                  <input
-                    type="checkbox"
-                    checked={task.status === 'done'}
-                    onChange={(e) =>
-                      updateTask(task.id, { status: e.target.checked ? 'done' : 'todo' })
-                    }
-                  />
-                  Done
-                </label>
-              </div>
+              </ul>
+              {!sorted(goal.id).length && <p className="muted">No subtasks yet.</p>}
               <button
                 type="button"
-                aria-label={'Remove ' + (task.title || 'task')}
+                className="outlined"
                 onClick={() => {
-                  onDirty(true)
-                  setTasks((old) => old.filter((item) => item.id !== task.id))
+                  setSelectedId(goal.id)
+                  setView('edit')
                 }}
               >
-                Remove
+                Edit goal
+              </button>
+            </details>
+          ))}
+        </section>
+      )}
+      {view === 'edit' && !selectedGoal && (
+        <p className="notice">Add your first goal with New Goal.</p>
+      )}
+      {view === 'edit' && selectedGoal && (
+        <p className="notice">
+          Your goals compete for the same time. Priority 5 is most important. Add the effort you
+          hope to spend on a goal each day; dAIly will adjust its suggestions as today changes.
+        </p>
+      )}
+      {goals
+        .filter((goal) => view === 'edit' && goal.id === selectedId)
+        .map((goal) => (
+          <section key={goal.id}>
+            <div className="inline-fields">
+              <label>
+                Goal
+                <input
+                  required
+                  value={goal.title}
+                  onChange={(e) => updateGoal(goal.id, { title: e.target.value })}
+                />
+              </label>
+              <label>
+                Priority, 5 is highest
+                <select
+                  value={goal.priority}
+                  onChange={(e) => updateGoal(goal.id, { priority: Number(e.target.value) })}
+                >
+                  {[1, 2, 3, 4, 5].map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Goal deadline
+                <input
+                  type="date"
+                  value={goal.deadline || ''}
+                  onChange={(e) => updateGoal(goal.id, { deadline: e.target.value || null })}
+                />
+              </label>
+              <label>
+                Preferred time per day, minutes
+                <MinutesInput
+                  min={5}
+                  max={720}
+                  value={goal.preferredDailyMinutes ?? null}
+                  placeholder="Optional"
+                  onChange={(value) => updateGoal(goal.id, { preferredDailyMinutes: value })}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  onDirty(true)
+                  setSelectedId(goals[selectedIndex + 1]?.id || goals[selectedIndex - 1]?.id)
+                  setGoals((old) => old.filter((item) => item.id !== goal.id))
+                  setTasks((old) => old.filter((task) => task.goalId !== goal.id))
+                }}
+              >
+                Remove goal
               </button>
             </div>
-          ))}
-          <div className="actions">
-            <button
-              type="button"
-              onClick={() => {
-                onDirty(true)
-                setTasks((old) => [
-                  ...old,
-                  {
-                    id: crypto.randomUUID(),
-                    goalId: goal.id,
-                    title: '',
-                    estimateMinutes: null,
-                    deadline: null,
-                    status: 'todo',
-                  },
-                ])
-              }}
-            >
-              Add next step
-            </button>
-            <button type="button" onClick={() => navigate('Today')}>
-              Plan my day with this goal
-            </button>
-          </div>
-          <GoalDiscussion
-            goal={goal}
-            tasks={sorted(goal.id)}
-            state={state}
-            save={saveDraft}
-            onSaved={acceptSaved}
-          />
-        </section>
-      ))}
-      <div className="inline-fields">
-        <label>
-          New goal
-          <input
-            placeholder="DSA, an exam, or something else"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-        </label>
-        <button
-          type="button"
-          disabled={!title.trim() || busy}
-          onClick={() => {
-            const next: Goal = {
-              id: crypto.randomUUID(),
-              title: title.trim(),
-              priority: 3,
-              deadline: null,
-              preferredDailyMinutes: null,
-            }
-            const nextGoals = [...goals, next]
-            setGoals(nextGoals)
-            onDirty(true)
-            setTitle('')
-            void save({ ...configFrom(state), goals: nextGoals, tasks }).then((saved) =>
-              onDirty(!saved),
-            )
-          }}
-        >
-          Add and save goal
-        </button>
-      </div>
+            <label>
+              What matters about this goal?
+              <textarea
+                maxLength={2000}
+                placeholder="Optional context, constraints, or what success looks like"
+                value={goal.notes || ''}
+                onChange={(e) => updateGoal(goal.id, { notes: e.target.value })}
+              />
+            </label>
+            <label>
+              Notes about the daily time target, optional
+              <input
+                maxLength={500}
+                placeholder="For example, longer sessions on weekends"
+                value={goal.preferredDailyNote || ''}
+                onChange={(e) => updateGoal(goal.id, { preferredDailyNote: e.target.value })}
+              />
+            </label>
+            <h3>Subtasks</h3>
+            <p className="muted">
+              Task estimate means total effort for that task. Leave it blank if unsure. dAIly
+              suggests how much to do in each focus block.
+            </p>
+            {sorted(goal.id).map((task) => (
+              <div className="row" key={task.id}>
+                <div className="inline-fields row-main">
+                  <label>
+                    Task
+                    <input
+                      required
+                      value={task.title}
+                      onChange={(e) => updateTask(task.id, { title: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Estimated total minutes
+                    <MinutesInput
+                      min={5}
+                      max={100000}
+                      value={task.estimateMinutes ?? null}
+                      placeholder="Not sure"
+                      onChange={(value) => updateTask(task.id, { estimateMinutes: value })}
+                    />
+                  </label>
+                  <label>
+                    Target date
+                    <input
+                      type="date"
+                      value={task.deadline || ''}
+                      onChange={(e) => updateTask(task.id, { deadline: e.target.value || null })}
+                    />
+                  </label>
+                  <label className="checkbox">
+                    <input
+                      type="checkbox"
+                      checked={task.status === 'done'}
+                      onChange={(e) =>
+                        updateTask(task.id, { status: e.target.checked ? 'done' : 'todo' })
+                      }
+                    />
+                    Done
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  aria-label={'Remove ' + (task.title || 'task')}
+                  onClick={() => {
+                    onDirty(true)
+                    setTasks((old) => old.filter((item) => item.id !== task.id))
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+            <div className="actions">
+              <button
+                type="button"
+                onClick={() => {
+                  onDirty(true)
+                  setTasks((old) => [
+                    ...old,
+                    {
+                      id: crypto.randomUUID(),
+                      goalId: goal.id,
+                      title: '',
+                      estimateMinutes: null,
+                      deadline: null,
+                      status: 'todo',
+                    },
+                  ])
+                }}
+              >
+                Add sub tasks
+              </button>
+              <button type="button" onClick={() => navigate('Today')}>
+                Plan my day with this goal
+              </button>
+            </div>
+            <GoalDiscussion
+              key={goal.id}
+              goal={goal}
+              tasks={sorted(goal.id)}
+              state={state}
+              save={saveDraft}
+              onSaved={acceptSaved}
+            />
+          </section>
+        ))}
       <div className="actions">
         <button className="primary" disabled={busy}>
           {busy ? 'Saving…' : 'Save goals'}

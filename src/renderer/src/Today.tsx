@@ -5,7 +5,7 @@ import type { MentorResult } from '../../shared/planner'
 import type { WorkflowResult } from '../../shared/workflow'
 import { useClock } from './useClock'
 import { FocusSession } from './FocusSession'
-import { explicitSubmit } from './Inputs'
+import { explicitSubmit, sendChatOnEnter } from './Inputs'
 
 export function Today({
   state,
@@ -372,6 +372,11 @@ export function Today({
               value={note}
               maxLength={4000}
               onChange={(e) => setNote(e.target.value)}
+              onKeyDown={(event) =>
+                sendChatOnEnter(event, () => {
+                  if (!busy && !goalsDirty) event.currentTarget.form?.requestSubmit()
+                })
+              }
             />
           </label>
           <div className="actions">
