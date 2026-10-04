@@ -22,7 +22,9 @@
     "data:path": "node scripts/data-path.mjs",
     "format": "prettier --write src tests scripts *.ts *.mjs *.json docs README.md .github/workflows/windows.yml",
     "format:check": "prettier --check src tests scripts *.ts *.mjs *.json docs README.md .github/workflows/windows.yml",
-    "benchmark:history": "tsx scripts/benchmark-history.mts"
+    "benchmark:history": "tsx scripts/benchmark-history.mts",
+    "demo": "node scripts/demo.mjs",
+    "demo:reset": "node scripts/demo.mjs --reset"
   },
   "build": {
     "appId": "dev.daily.mentor",
