@@ -24,7 +24,7 @@ import {
 import { z } from 'zod'
 import { GoalSchema, TaskSchema } from '../shared/state'
 import {
-  ScheduleExtractionSchema,
+  parseScheduleExtraction,
   ScheduleReviewSchema,
   type ScheduleImportResult,
   type ScheduleReview,
@@ -402,7 +402,7 @@ export class DayApplication {
         },
       },
     )
-    const extraction = ScheduleExtractionSchema.parse(JSON.parse(answer))
+    const extraction = parseScheduleExtraction(answer)
     return { filename: basename(file.name), extraction }
   }
   confirmSchedule(input: unknown): Snapshot {
