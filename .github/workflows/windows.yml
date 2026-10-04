@@ -1,0 +1,30 @@
+name: Windows application checks
+on:
+  push:
+    branches: [main, 'build/**', 'feat/**', 'test/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  desktop:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Prepare native SQLite for Node checks
+        run: npm rebuild better-sqlite3
+      - run: npm run check
+      - name: Prepare native SQLite for Electron
+        run: npm run postinstall
+      - run: node scripts/smoke.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-desktop-smoke
+          path: artifacts/desktop-smoke
