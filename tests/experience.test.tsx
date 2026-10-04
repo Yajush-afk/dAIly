@@ -94,6 +94,12 @@ describe('usable planning cycle', () => {
         changed()
         return r
       },
+      discussGoal: async () => {
+        throw new Error('Goal discussion is not used in this scenario')
+      },
+      approveRoadmap: async () => store.snapshot(),
+      importSchedule: async () => undefined,
+      confirmSchedule: async () => store.snapshot(),
       acceptPlan: async (id) => {
         planner.accept(id)
         return changed()
@@ -126,7 +132,7 @@ describe('usable planning cycle', () => {
     await user.type(minutes, '3')
     await user.type(screen.getByLabelText('Actual work'), 'Read the first example.')
     await user.click(screen.getByRole('button', { name: 'Save outcome and reconsider today' }))
-    await screen.findByText('Build on your reported partial progress.')
+    await screen.findAllByText('Build on your reported partial progress.')
     expect(store.snapshot().sessions[0].outcome).toBe('partial')
     expect(store.snapshot().sessions[0].elapsedSeconds).toBe(180)
     expect(store.snapshot().tasks[0].status).toBe('todo')

@@ -25,7 +25,7 @@ import { arrivalDue, LocalNotifications } from './notifications'
 import { resolve } from 'node:path'
 import { smoke } from './smoke'
 import { mkdirSync } from 'node:fs'
-import { writeFile, rename, unlink } from 'node:fs/promises'
+import { writeFile, rename, unlink, readFile, stat } from 'node:fs/promises'
 import { serializeExport } from './export'
 import { DayApplication } from './application'
 import { HistoryQuerySchema } from '../shared/history'
@@ -195,7 +195,7 @@ app
     handle('mentor:ask', async (input) => {
       try {
         const request = MentorInput.parse(input)
-        return await planner.request(request.text, request.intent)
+        return await planner.request(request.text, request.intent, request.images)
       } finally {
         publish()
       }
@@ -216,6 +216,38 @@ app
     handle('day:approve-changes', (input) =>
       application.approveChanges(ReviewedChangesSchema.parse(input)),
     )
+    handle('goal:discuss', (input) => application.discussGoal(input))
+    handle('goal:approve-roadmap', (input) => application.approveRoadmap(input))
+    handle('schedule:import', async () => {
+      const picked = await dialog.showOpenDialog({
+        title: 'Choose a college timetable',
+        properties: ['openFile'],
+        filters: [
+          { name: 'Timetable files', extensions: ['png', 'jpg', 'jpeg', 'webp', 'csv', 'xlsx'] },
+        ],
+      })
+      if (picked.canceled || !picked.filePaths[0]) return undefined
+      const filePath = picked.filePaths[0]
+      if ((await stat(filePath)).size > 8_000_000)
+        throw new Error('Choose a file smaller than 8 MB.')
+      const data = await readFile(filePath)
+      const extension = filePath.slice(filePath.lastIndexOf('.')).toLowerCase()
+      let images: string[] | undefined
+      if (['.png', '.jpg', '.jpeg', '.webp'].includes(extension)) {
+        const image = nativeImage.createFromBuffer(data)
+        if (image.isEmpty())
+          throw new Error('dAIly could not read that image. Try a PNG or JPEG timetable.')
+        const size = image.getSize()
+        if (size.width > 7000 || size.height > 7000)
+          throw new Error('Resize this image to under 7000 pixels per side and try again.')
+        const prepared = image.resize({ width: 1400, quality: 'good' }).toJPEG(76)
+        if (prepared.byteLength > 2_500_000)
+          throw new Error('This timetable image is too large. Crop it or choose a smaller image.')
+        images = [prepared.toString('base64')]
+      }
+      return application.importSchedule({ name: filePath, data, images })
+    })
+    handle('schedule:confirm', (input) => application.confirmSchedule(input))
     handle('day:outcome', (input) => {
       const command = SessionActionSchema.parse(input)
       if (command.action !== 'outcome') throw new Error('Expected a session outcome')

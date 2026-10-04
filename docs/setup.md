@@ -14,13 +14,13 @@ After installation and model download, inference uses `127.0.0.1:11434`. No host
 
 ## Timetable and tasks
 
-A dated timetable entry replaces the whole weekly schedule for that date. Include every class for the replacement day. A dated day-off entry removes the day's classes. Commute is reserved on both sides of class intervals.
+College is stored as one recurring start and end interval per weekday. Enter it manually or upload a PNG, JPEG, WEBP, CSV, or XLSX timetable. Gemma reads only the college-day start and end locally; review the times and confirm before saving. An unclear weekday stays unfilled and appears as a question. You can also report a college holiday in a day update; dAIly adds a one-day override for the explicitly named date. Commute is reserved on both sides of college.
 
-An evening ending after midnight uses the next day's cutoff. A fresh low-energy report limits suggested blocks to 20 minutes without changing your saved preference. Preferences and smaller tasks proposed by the mentor require review and acceptance. A suggestion is not a completed task.
+Priority 5 is highest. Set a goal-level preferred amount of focus time per day; dAIly weighs it against other priorities, deadlines, and today's availability. A task estimate means total effort for that task, while a focus block is the work session dAIly proposes for today. Discuss a goal to work through its subtasks and target dates; inspect and approve the roadmap before it changes saved tasks. An evening ending after midnight uses the next day's cutoff. A fresh low-energy report limits suggested blocks to 20 minutes without changing your saved preference. Smaller tasks proposed by the daily mentor also require review. A timer outcome never completes a task without your confirmation.
 
 ## Data and desktop behaviour
 
-SQLite lives in Electron's user-data directory, normally `%APPDATA%\dAIly\daily.db` on Windows. Export local records from Settings to a readable JSON file. Export includes conversation and personal planning history. There is no import feature in this release.
+SQLite lives in Electron's user-data directory, normally `%APPDATA%\dAIly\daily.db` on Windows. Export local records from Settings to a readable JSON file. Export includes conversation and personal planning history. Goal discussion and timetable imports run through Ollama on this laptop. The imported schedule keeps only recurring college-day start and end times, not each class, subject, or room.
 
 Closing the window hides it to the tray. Use the tray to reopen, pause or resume, or quit. Launch at login and notifications are optional. Arrival check-ins follow the last class and expected commute. Quiet hours suppress notifications; suppressed session-end notices do not appear later, but the outcome prompt remains in the app.
 

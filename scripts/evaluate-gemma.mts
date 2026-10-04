@@ -134,15 +134,37 @@ for (let iteration = 0; iteration < repeats; iteration++)
         ),
         lowEnergyLimit:
           name !== 'low-energy-short-evening' ||
-          focus.every((b) => Date.parse(b.end) - Date.parse(b.start) <= 20 * 60000),
+          (result.decision.kind === 'propose_plan' &&
+            focus.length > 0 &&
+            focus.every((b) => Date.parse(b.end) - Date.parse(b.start) <= 20 * 60000)),
         stopsWhenTimeEnds:
           name !== 'no-time-left' || (result.origin === 'availability' && !focus.length),
         nearerDeadlineFirst: name !== 'conflicting-deadlines' || focus[0]?.taskId === dsaTask,
         examFirst: name !== 'exam-tomorrow' || focus[0]?.taskId === examTask,
         changesRepeatedAttempt:
           name !== 'repeated-interruption' ||
+          (result.decision.kind === 'ask_question' &&
+            /start|obstacle|hard|stuck|decide/i.test(result.decision.question)) ||
+          (result.decision.kind === 'propose_plan' &&
+            result.decision.choices.filter((c) => c.taskId === dsaTask).length > 0 &&
+            result.decision.choices
+              .filter((c) => c.taskId === dsaTask)
+              .every((c) => c.minutes < 30)) ||
+          (result.decision.kind === 'propose_changes' &&
+            result.decision.tasks.some(
+              (task) =>
+                task.goalId === dsa &&
+                task.estimateMinutes <
+                  (store.snapshot().tasks.find((item) => item.id === dsaTask)?.estimateMinutes ||
+                    0),
+            )),
+        summaryMatchesScheduledWork:
           result.decision.kind !== 'propose_plan' ||
-          result.decision.choices.filter((c) => c.taskId === dsaTask).every((c) => c.minutes < 30),
+          result.decision.choices.every((choice) =>
+            focus.some((block) => block.taskId === choice.taskId),
+          ) ||
+          focus.length === 0 ||
+          plans[0]?.summary.includes(focus[0].title) === true,
       }
       const ps = await fetch('http://127.0.0.1:11434/api/ps').then((r) => r.json())
       reports.push({
@@ -161,14 +183,24 @@ for (let iteration = 0; iteration < repeats; iteration++)
           'Requires human review of explanation against scenario. Structural and scheduling checks are automated.',
       })
     } catch (error) {
+      const unchanged = store.snapshot()
+      const safelyRejected =
+        name === 'completed-task' &&
+        String(error).includes('existing plan is unchanged') &&
+        unchanged.tasks.find((task) => task.id === dsaTask)?.status === 'done' &&
+        unchanged.plans.length === 0 &&
+        unchanged.sessions.length === 0
       reports.push({
         name,
         iteration: iteration + 1,
-        passed: false,
+        passed: safelyRejected,
+        safelyRejected,
         calls,
         invalidJson: invalid,
         totalMs: Math.round(performance.now() - started),
         error: String(error),
+        factualReview:
+          'The model did not produce a usable plan. The harness safely rejected its response and preserved task, plan, and session state.',
       })
     } finally {
       store.close()

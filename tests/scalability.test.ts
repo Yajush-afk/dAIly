@@ -66,7 +66,7 @@ describe('durable application architecture', () => {
     db.close()
     const store = new Store(path)
     try {
-      expect(store.db.pragma('user_version', { simple: true })).toBe(3)
+      expect(store.db.pragma('user_version', { simple: true })).toBe(4)
       expect(store.revision).toBe(21)
       expect(store.planningRevision).toBe(0)
       expect(store.get('messages', id)?.text).toBe('My existing history')

@@ -5,8 +5,17 @@ import type { MentorResult } from '../../shared/planner'
 import type { WorkflowResult } from '../../shared/workflow'
 import { useClock } from './useClock'
 import { FocusSession } from './FocusSession'
+import { explicitSubmit } from './Inputs'
 
-export function Today({ state }: { state: Snapshot }): React.JSX.Element {
+export function Today({
+  state,
+  onOpenGoals,
+  goalsDirty,
+}: {
+  state: Snapshot
+  onOpenGoals: () => void
+  goalsDirty: boolean
+}): React.JSX.Element {
   const [note, setNote] = useState('')
   const [energy, setEnergy] = useState<'unknown' | 'low' | 'okay' | 'high'>('unknown')
   const [until, setUntil] = useState(state.profile.bedtime)
@@ -18,7 +27,6 @@ export function Today({ state }: { state: Snapshot }): React.JSX.Element {
   const [drafts, setDrafts] = useState<
     { goalId: string; title: string; estimateMinutes: number }[]
   >([])
-  const [conversation, setConversation] = useState(false)
   const now = useClock()
   const active = state.sessions.find((s) => s.state !== 'finished')
   const recurringDeferral = state.tasks.find((t) =>
@@ -205,6 +213,9 @@ export function Today({ state }: { state: Snapshot }): React.JSX.Element {
             Tell me how much time and energy you have. Add concrete next steps in Goals so I can
             choose between them.
           </p>
+          <button type="button" onClick={onOpenGoals}>
+            Check goals
+          </button>
         </section>
       )}
       {result && result.decision.kind !== 'propose_plan' && (
@@ -214,8 +225,12 @@ export function Today({ state }: { state: Snapshot }): React.JSX.Element {
               ? result.decision.question
               : result.decision.explanation}
           </p>
-          {result.origin === 'availability' && (
-            <small>Based on your available time. No model request was needed.</small>
+          {(result.origin === 'availability' || result.origin === 'missing_tasks') && (
+            <small>
+              {result.origin === 'availability'
+                ? 'Based on your available time. No model request was needed.'
+                : 'Add a concrete next step in Goals to get a useful focus plan.'}
+            </small>
           )}
           {result.decision.kind === 'propose_changes' && (
             <>
@@ -251,7 +266,7 @@ export function Today({ state }: { state: Snapshot }): React.JSX.Element {
                     />
                   </label>
                   <label>
-                    Minutes
+                    Focus block minutes
                     <input
                       type="number"
                       min="5"
@@ -282,7 +297,12 @@ export function Today({ state }: { state: Snapshot }): React.JSX.Element {
       )}
       <section className="composer">
         <h2>Update your day</h2>
+        <p className="muted">
+          Tell dAIly what changed and when you need to stop. It will consider your goals, deadlines,
+          recent work, and remaining time.
+        </p>
         <form
+          onKeyDown={explicitSubmit}
           onSubmit={(e) => {
             e.preventDefault()
             void ask(
@@ -355,7 +375,7 @@ export function Today({ state }: { state: Snapshot }): React.JSX.Element {
             />
           </label>
           <div className="actions">
-            <button className="primary" disabled={busy}>
+            <button className="primary" disabled={busy || goalsDirty}>
               {busy ? 'Thinking...' : 'Plan with this update'}
             </button>
             <button
@@ -372,21 +392,18 @@ export function Today({ state }: { state: Snapshot }): React.JSX.Element {
             )}
           </div>
         </form>
-        <button
-          className="text-button"
-          aria-expanded={conversation}
-          onClick={() => setConversation(!conversation)}
-        >
-          {conversation ? 'Hide conversation' : 'Show conversation'}
-        </button>
-        {conversation && (
+        {!!state.messages.filter((message) => message.channel !== 'goal').length && (
           <div className="conversation">
-            {state.messages.slice(-20).map((m) => (
-              <article key={m.id}>
-                <strong>{m.role === 'user' ? state.profile.name : 'dAIly'}</strong>
-                <p>{m.text}</p>
-              </article>
-            ))}
+            <h3>Today’s conversation</h3>
+            {state.messages
+              .filter((message) => message.channel !== 'goal')
+              .slice(-8)
+              .map((m) => (
+                <article key={m.id}>
+                  <strong>{m.role === 'user' ? state.profile.name : 'dAIly'}</strong>
+                  <p>{m.text}</p>
+                </article>
+              ))}
           </div>
         )}
       </section>

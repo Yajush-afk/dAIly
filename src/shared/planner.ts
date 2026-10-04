@@ -66,6 +66,7 @@ export const MentorInput = z
   .object({
     text: z.string().trim().min(1).max(4000),
     intent: z.enum(['plan', 'conversation']).default('plan'),
+    images: z.array(z.string().max(4_000_000)).max(1).optional(),
   })
   .strict()
 export interface MentorResult {
@@ -74,5 +75,5 @@ export interface MentorResult {
   planId?: string
   revision: number
   durationMs: number
-  origin?: 'gemma' | 'availability'
+  origin?: 'gemma' | 'availability' | 'missing_tasks' | 'guardrail'
 }

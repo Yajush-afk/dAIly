@@ -25,6 +25,7 @@ export default function App(): React.JSX.Element {
     messages: [],
   })
   const [busy, setBusy] = useState(false)
+  const [goalsDirty, setGoalsDirty] = useState(false)
   const [error, setError] = useState('')
   const [exportNotice, setExportNotice] = useState('')
   const [loading, setLoading] = useState(() => !!window.dAIly)
@@ -55,19 +56,21 @@ export default function App(): React.JSX.Element {
       unsubscribe()
     }
   }, [])
-  async function save(config: Config): Promise<void> {
+  async function save(config: Config): Promise<boolean> {
     if (!window.dAIly) {
       setError(
         'Open the desktop application to save your records. This browser is a visual preview.',
       )
-      return
+      return false
     }
     setBusy(true)
     setError('')
     try {
       setState(await window.dAIly.saveConfig(config))
+      return true
     } catch (reason) {
       setError(String(reason))
+      return false
     } finally {
       setBusy(false)
     }
@@ -116,6 +119,14 @@ export default function App(): React.JSX.Element {
               {error}
             </p>
           )}
+          {goalsDirty && page !== 'Goals' && (
+            <p role="status" className="notice">
+              Your goal edits are not saved yet. Open Goals and save them before planning.
+              <button type="button" onClick={() => setPage('Goals')}>
+                Return to Goals
+              </button>
+            </p>
+          )}
           {loading && (
             <p role="status" className="notice">
               Loading your saved day...
@@ -132,22 +143,29 @@ export default function App(): React.JSX.Element {
               state={state}
               save={save}
               busy={busy}
+              importSchedule={() => window.dAIly?.importSchedule() || Promise.resolve(undefined)}
             />
           )}
-          {page === 'Today' && state.profile.onboardingComplete && <Today state={state} />}
-          {page === 'Goals' && (
-            <GoalsEditor
-              key={JSON.stringify([state.goals, state.tasks])}
-              state={state}
-              save={save}
-              busy={busy}
-            />
+          {page === 'Today' && state.profile.onboardingComplete && (
+            <Today state={state} onOpenGoals={() => setPage('Goals')} goalsDirty={goalsDirty} />
+          )}
+          {!loading && (
+            <div hidden={page !== 'Goals'} className="page-content">
+              <GoalsEditor
+                state={state}
+                save={save}
+                busy={busy}
+                navigate={() => setPage('Today')}
+                onDirty={setGoalsDirty}
+              />
+            </div>
           )}
           {page === 'History' && <History state={state} />}
           {page === 'Settings' && (
             <>
               <section>
                 <h2>Appearance</h2>
+                <p className="muted">Choose a comfortable light or dark workspace.</p>
                 <label className="setting-row">
                   Theme
                   <select
@@ -175,6 +193,9 @@ export default function App(): React.JSX.Element {
                   state={state}
                   save={save}
                   busy={busy}
+                  importSchedule={() =>
+                    window.dAIly?.importSchedule() || Promise.resolve(undefined)
+                  }
                 />
               </section>
               <section>

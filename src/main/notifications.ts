@@ -4,7 +4,8 @@ import type { Store } from './store'
 
 export function isQuiet(profile: Profile, now: number): boolean {
   const time = DateTime.fromMillis(now, { zone: profile.timezone }).toFormat('HH:mm')
-  const { quietStart: start, quietEnd: end } = profile
+  const start = profile.quietDuringSleep ? profile.bedtime : profile.quietStart
+  const end = profile.quietDuringSleep ? profile.wakeTime : profile.quietEnd
   if (start === end) return false
   return start < end ? time >= start && time < end : time >= start || time < end
 }

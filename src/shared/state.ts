@@ -22,6 +22,7 @@ export const ProfileSchema = z
     breakMinutes: z.number().int().min(5).max(60),
     quietStart: Time,
     quietEnd: Time,
+    quietDuringSleep: z.boolean().optional(),
     notifications: z.boolean(),
     arrivalCheckIn: z.boolean(),
     launchAtLogin: z.boolean(),
@@ -52,6 +53,9 @@ export const GoalSchema = z
     title: text,
     priority: z.number().int().min(1).max(5),
     deadline: z.string().date().nullable(),
+    preferredDailyMinutes: z.number().int().min(5).max(720).nullable().optional(),
+    preferredDailyNote: z.string().trim().max(500).optional(),
+    notes: z.string().trim().max(2000).optional(),
   })
   .strict()
 export const TaskSchema = z
@@ -59,7 +63,7 @@ export const TaskSchema = z
     id: Id,
     goalId: Id,
     title: text,
-    estimateMinutes: z.number().int().min(5).max(480),
+    estimateMinutes: z.number().int().min(5).max(100000).nullable(),
     deadline: z.string().date().nullable(),
     status: z.enum(['todo', 'done']),
   })
@@ -141,9 +145,17 @@ export const MessageSchema = z
     at: IsoDate,
     role: z.enum(['user', 'mentor']),
     text: z.string().max(12000),
+    channel: z.enum(['day', 'goal']).optional(),
+    goalId: Id.optional(),
     details: z
       .object({
-        type: z.enum(['decision', 'session-action', 'plan-accept', 'changes-accept']),
+        type: z.enum([
+          'decision',
+          'session-action',
+          'plan-accept',
+          'changes-accept',
+          'goal-decision',
+        ]),
         payload: z.string().max(20000),
       })
       .strict()

@@ -334,6 +334,42 @@ label {
   padding: 14px 0;
   white-space: pre-wrap;
 }
+.conversation article + article,
+.goal-discussion,
+.schedule-review,
+.roadmap-review {
+  border-top: 1px solid var(--line);
+}
+.goal-discussion,
+.schedule-review,
+.roadmap-review {
+  margin-top: 24px;
+  padding-top: 20px;
+}
+.goal-discussion > p,
+.roadmap-review > p,
+.schedule-review > p {
+  margin: 7px 0 12px;
+}
+.goal-discussion > label,
+.roadmap-review > label {
+  margin: 14px 0;
+}
+.goal-conversation {
+  max-height: 320px;
+  overflow-y: auto;
+}
+.schedule-review .inline-fields {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.schedule-review .inline-fields > strong {
+  min-width: 84px;
+  padding: 10px 0;
+}
+[hidden] {
+  display: none !important;
+}
 .conversation article small {
   display: block;
   margin-bottom: 4px;

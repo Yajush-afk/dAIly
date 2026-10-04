@@ -3,6 +3,7 @@ import type { FocusSession as Session, Snapshot } from '../../shared/state'
 import type { SessionAction } from '../../shared/session'
 import { useClock } from './useClock'
 import type { WorkflowResult } from '../../shared/workflow'
+import { explicitSubmit, MinutesInput } from './Inputs'
 
 export function FocusSession({
   session,
@@ -86,12 +87,13 @@ export function FocusSession({
           </p>
           <label>
             Actual focus minutes
-            <input
-              type="number"
-              min="0"
-              max="1440"
+            <MinutesInput
+              min={0}
+              max={1440}
               value={reportedMinutes}
-              onChange={(e) => setReportedMinutes(Number(e.target.value))}
+              onChange={(value) => {
+                if (value !== null) setReportedMinutes(value)
+              }}
             />
           </label>
           <button
@@ -134,6 +136,7 @@ export function FocusSession({
       )}
       {session.state === 'awaiting-outcome' && (
         <form
+          onKeyDown={explicitSubmit}
           onSubmit={(e) => {
             e.preventDefault()
             void record()
@@ -155,13 +158,14 @@ export function FocusSession({
             </label>
             <label>
               Actual focus minutes
-              <input
-                type="number"
-                min="0"
-                max="1440"
+              <MinutesInput
+                min={0}
+                max={1440}
                 required
                 value={reportedMinutes}
-                onChange={(e) => setReportedMinutes(Number(e.target.value))}
+                onChange={(value) => {
+                  if (value !== null) setReportedMinutes(value)
+                }}
               />
             </label>
           </div>

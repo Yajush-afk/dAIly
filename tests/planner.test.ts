@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { Store } from '../src/main/store'
 import { Planner } from '../src/main/planner'
 import { availableIntervals, schedule } from '../src/main/scheduler'
+import { orderPlanChoices, validateDecision } from '../src/main/policy'
 import { defaultProfile, type Snapshot } from '../src/shared/state'
 import type { Decision } from '../src/shared/planner'
 
@@ -83,6 +84,97 @@ describe('deterministic planning', () => {
         now,
       ),
     ).toThrow('unknown')
+  })
+  it('keeps the plan summary aligned with the task that fits', () => {
+    const s = scenario(),
+      secondTask = randomUUID()
+    s.goals.push({ id: randomUUID(), title: 'DSA', priority: 2, deadline: null })
+    const dsaGoal = s.goals.at(-1)!
+    s.tasks.push({
+      id: secondTask,
+      goalId: dsaGoal.id,
+      title: 'Solve one graph problem',
+      estimateMinutes: 30,
+      deadline: null,
+      status: 'todo',
+    })
+    s.profile = { ...s.profile, breakMinutes: 10 }
+    s.checkIns.push({
+      id: randomUUID(),
+      at: new Date(now).toISOString(),
+      availableUntil: new Date(now + 20 * 60000).toISOString(),
+      energy: 'low',
+      note: '',
+      busy: [],
+    })
+    const plan = schedule(
+      s,
+      {
+        kind: 'propose_plan',
+        summary: 'Revise graphs, then solve a problem.',
+        choices: [
+          { taskId: s.tasks[0].id, minutes: 10, reason: 'Review for the exam.' },
+          { taskId: secondTask, minutes: 20, reason: 'Keep up with DSA.' },
+        ],
+        deferred: [],
+      },
+      now,
+    )
+    expect(plan.blocks.filter((block) => block.kind === 'focus')).toHaveLength(1)
+    expect(plan.summary).toContain('Revise graphs')
+    expect(plan.summary).not.toContain('Solve one graph problem')
+  })
+  it('rejects renamed copies and no-op preference suggestions', () => {
+    const s = scenario()
+    expect(() =>
+      validateDecision(
+        s,
+        {
+          kind: 'propose_changes',
+          explanation: 'Try a smaller step.',
+          tasks: [{ goalId: s.goals[0].id, title: 'revise graphs!', estimateMinutes: 15 }],
+          preferences: {},
+        },
+        now,
+      ),
+    ).toThrow('renamed copies')
+    expect(() =>
+      validateDecision(
+        s,
+        {
+          kind: 'propose_changes',
+          explanation: 'Adjust the focus preference.',
+          tasks: [],
+          preferences: { focusMinutes: s.profile.focusMinutes },
+        },
+        now,
+      ),
+    ).toThrow('current setting')
+  })
+  it('orders selected tasks by deadline before open-ended tasks', () => {
+    const s = scenario(),
+      openGoalId = randomUUID(),
+      openTaskId = randomUUID()
+    s.goals.push({ id: openGoalId, title: 'DSA', priority: 5, deadline: null })
+    s.tasks.push({
+      id: openTaskId,
+      goalId: openGoalId,
+      title: 'Solve a graph problem',
+      estimateMinutes: 30,
+      deadline: null,
+      status: 'todo',
+    })
+    const decision = orderPlanChoices(s, {
+      kind: 'propose_plan',
+      summary: 'Do both tasks.',
+      choices: [
+        { taskId: openTaskId, minutes: 15, reason: 'Make progress on DSA.' },
+        { taskId: s.tasks[0].id, minutes: 15, reason: 'Review for the exam.' },
+      ],
+      deferred: [],
+    })
+    expect(decision.kind).toBe('propose_plan')
+    if (decision.kind === 'propose_plan') expect(decision.choices[0].taskId).toBe(s.tasks[0].id)
   })
   it('repairs invalid output once and discards results if state changed', async () => {
     const s = scenario(),
