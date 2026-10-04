@@ -16,7 +16,7 @@ export class OllamaClient {
   private async request<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
     if (this.active) throw new Error('Another model request is running. Wait or cancel it first.')
     const controller = new AbortController(); this.active = controller
-    try { return await operation(controller.signal) }
+    try { const result = await operation(controller.signal); if (controller.signal.aborted) throw new Error('Request cancelled'); return result }
     catch (error) {
       if (controller.signal.aborted) throw new Error('Request cancelled')
       if (error instanceof Error && error.name === 'TimeoutError') throw new Error('Gemma took too long. Your saved plan is intact. Close heavy applications and retry.')

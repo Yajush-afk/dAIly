@@ -20,9 +20,11 @@ export function Today({ state }: { state: Snapshot }): React.JSX.Element {
   const now = useClock()
   const active = state.sessions.find(s => s.state !== 'finished')
   const recurringDeferral = state.tasks.filter(t => t.status === 'todo').find(t => new Set(state.plans.filter(p => now - Date.parse(p.createdAt) < 7 * 86400000 && p.deferred.some(d => d.taskId === t.id)).map(p => DateTime.fromISO(p.createdAt).setZone(state.profile.timezone).toISODate())).size >= 3)
-  const plan = [...state.plans].reverse().find(p => p.status === 'proposed') || [...state.plans].reverse().find(p => p.status === 'accepted')
+  const storedPlan = [...state.plans].reverse().find(p => p.status === 'proposed') || [...state.plans].reverse().find(p => p.status === 'accepted')
+  const exhausted = result?.origin === 'availability' || (storedPlan && state.checkIns.some(c => c.availableUntil && Date.parse(c.availableUntil) <= now && c.at > storedPlan.createdAt))
+  const plan = exhausted ? undefined : storedPlan
   const time = (iso: string): string => DateTime.fromISO(iso, { zone: state.profile.timezone }).toFormat('h:mm a')
-  async function ask(text: string, checkIn: boolean): Promise<void> {
+  async function ask(text: string, checkIn: boolean, intent: 'plan' | 'conversation' = 'plan'): Promise<void> {
     if (!window.dAIly) return
     setBusy(true); setError(''); setResult(undefined)
     try {
@@ -41,7 +43,7 @@ export function Today({ state }: { state: Snapshot }): React.JSX.Element {
         }
         await window.dAIly.saveCheckIn({ id: crypto.randomUUID(), at: now.toUTC().toISO()!, availableUntil: cutoff.toUTC().toISO()!, energy, note: text, busy: obligations })
       }
-      const answer = await window.dAIly.askMentor(text)
+      const answer = await window.dAIly.askMentor(text, intent)
       setResult(answer)
       if (answer.decision.kind === 'propose_changes') setDrafts(answer.decision.tasks)
       setNote('')
@@ -74,7 +76,8 @@ export function Today({ state }: { state: Snapshot }): React.JSX.Element {
       {!!plan.deferred.length && <details><summary>Left for another day ({plan.deferred.length})</summary><ul className="plain-list">{plan.deferred.map(d => <li key={d.taskId}>{state.tasks.find(t => t.id === d.taskId)?.title || 'Removed task'}<small>{d.reason}</small></li>)}</ul></details>}
     </section> : <section className="empty-state"><h2>What fits today?</h2><p>Tell me how much time and energy you have. Add concrete next steps in Goals so I can choose between them.</p></section>}
     {result && result.decision.kind !== 'propose_plan' && <section aria-live="polite"><p>{result.decision.kind === 'ask_question' ? result.decision.question : result.decision.explanation}</p>
-      {result.decision.kind === 'propose_changes' && <><h2>Review these changes</h2>{drafts.map((task, i) => <div className="task-row" key={i}><label>Next step<input value={task.title} onChange={e => setDrafts(drafts.map((t, n) => n === i ? { ...t, title: e.target.value } : t))} /></label><label>Minutes<input type="number" min="5" max="120" value={task.estimateMinutes} onChange={e => setDrafts(drafts.map((t, n) => n === i ? { ...t, estimateMinutes: Number(e.target.value) } : t))} /></label></div>)}
+      {result.origin === 'availability' && <small>Based on your available time. No model request was needed.</small>}
+      {result.decision.kind === 'propose_changes' && <><h2>Review these changes</h2>{drafts.map((task, i) => <div className="task-row" key={i}><label>Goal<select value={task.goalId} onChange={e => setDrafts(drafts.map((t, n) => n === i ? { ...t, goalId: e.target.value } : t))}>{state.goals.map(goal => <option key={goal.id} value={goal.id}>{goal.title}</option>)}</select></label><label>Next step<input value={task.title} onChange={e => setDrafts(drafts.map((t, n) => n === i ? { ...t, title: e.target.value } : t))} /></label><label>Minutes<input type="number" min="5" max="120" value={task.estimateMinutes} onChange={e => setDrafts(drafts.map((t, n) => n === i ? { ...t, estimateMinutes: Number(e.target.value) } : t))} /></label></div>)}
         <p className="notice">{Object.entries(result.decision.preferences).map(([k, v]) => `${k === 'focusMinutes' ? 'Focus' : 'Break'}: ${v} minutes`).join(', ') || 'No preference changes.'}</p>
         <button disabled={busy} onClick={() => void saveChanges()}>Save reviewed changes</button></>}
     </section>}
@@ -83,7 +86,7 @@ export function Today({ state }: { state: Snapshot }): React.JSX.Element {
       <div className="form-grid"><label>Energy<select value={energy} onChange={e => setEnergy(e.target.value as typeof energy)}><option value="unknown">Not sure</option><option value="low">Low</option><option value="okay">Okay</option><option value="high">High</option></select></label><label>Available until<input type="time" required value={until} onChange={e => setUntil(e.target.value)} /></label></div>
       <details><summary>Other unavailable time today</summary><div className="form-grid"><label>From<input type="time" value={busyStart} onChange={e => setBusyStart(e.target.value)} /></label><label>Until<input type="time" value={busyEnd} onChange={e => setBusyEnd(e.target.value)} /></label></div><button type="button" onClick={() => { setBusyStart(''); setBusyEnd('') }}>Clear unavailable time</button></details>
       <label>What changed?<textarea id="day-update" placeholder="I got home late. I have an exam tomorrow." value={note} maxLength={4000} onChange={e => setNote(e.target.value)} /></label>
-      <div className="actions"><button className="primary" disabled={busy}>{busy ? 'Thinking...' : 'Plan with this update'}</button><button type="button" disabled={busy || !note.trim()} onClick={() => void ask(note, false)}>Ask mentor</button>{busy && <button type="button" onClick={() => void window.dAIly?.cancelModel()}>Cancel</button>}</div>
+      <div className="actions"><button className="primary" disabled={busy}>{busy ? 'Thinking...' : 'Plan with this update'}</button><button type="button" disabled={busy || !note.trim()} onClick={() => void ask(note, false, 'conversation')}>Ask mentor</button>{busy && <button type="button" onClick={() => void window.dAIly?.cancelModel()}>Cancel</button>}</div>
     </form><button className="text-button" aria-expanded={conversation} onClick={() => setConversation(!conversation)}>{conversation ? 'Hide conversation' : 'Show conversation'}</button>
     {conversation && <div className="conversation">{state.messages.slice(-20).map(m => <article key={m.id}><strong>{m.role === 'user' ? state.profile.name : 'dAIly'}</strong><p>{m.text}</p></article>)}</div>}</section>
   </>

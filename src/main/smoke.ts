@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Store } from './store'
 import { defaultProfile } from '../shared/state'
+import type { MentorResult } from '../shared/planner'
 
 // Invoked only with an explicit test flag. The entry point redirects userData
 // to an isolated directory before Electron opens any database.
@@ -18,6 +19,13 @@ export async function smoke(window: BrowserWindow, store: Store, directory: stri
     const config = { profile: { ...defaultProfile, onboardingComplete: true, timezone: 'UTC', bedtime: '23:59', wakeTime: '00:00' }, goals: [{ id: goalId, title: 'DSA', priority: 2, deadline: null }], tasks: [{ id: taskId, goalId, title: 'Review one graph problem', estimateMinutes: 30, deadline: null, status: 'todo' }], timetable: [] }
     await js(`window.dAIly.saveConfig(${JSON.stringify(config)})`)
     assert(store.snapshot().tasks[0].id === taskId, 'Typed renderer command persists into SQLite')
+    if (process.argv.includes('--smoke-with-model')) {
+      assert(await js(`window.dAIly.modelStatus().then(status => status.ready)`), 'Local Gemma is ready in the packaged app')
+      const response = await js<MentorResult>(`window.dAIly.askMentor('Propose an achievable next block from my concrete tasks, unless you need one relevant question.')`)
+      assert(response.decision.kind && response.durationMs > 0, 'Real Gemma response crosses the packaged preload bridge')
+      writeFileSync(join(directory, 'gemma.json'), JSON.stringify(response, null, 2))
+      if (response.planId) await js(`window.dAIly.acceptPlan('${response.planId}')`)
+    }
     const now = Date.now(), blockId = randomUUID()
     store.put('plans', { id: randomUUID(), createdAt: new Date(now).toISOString(), contextRevision: store.revision, status: 'accepted', summary: 'A useful evening starts with one step.', blocks: [{ id: blockId, taskId, kind: 'focus', title: 'Review one graph problem', start: new Date(now).toISOString(), end: new Date(now + 1800000).toISOString(), reason: 'You have thirty minutes available.' }], deferred: [] })
     await js(`window.dAIly.sessionAction(${JSON.stringify({ action: 'start', blockId })})`)

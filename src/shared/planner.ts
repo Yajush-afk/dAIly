@@ -9,5 +9,5 @@ export const DecisionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('respond'), explanation: reason }).strict()
 ])
 export type Decision = z.infer<typeof DecisionSchema>
-export const MentorInput = z.object({ text: z.string().trim().min(1).max(4000) }).strict()
-export interface MentorResult { decision: Decision; planId?: string; revision: number; durationMs: number }
+export const MentorInput = z.object({ text: z.string().trim().min(1).max(4000), intent: z.enum(['plan', 'conversation']).default('plan') }).strict()
+export interface MentorResult { decision: Decision; planId?: string; revision: number; durationMs: number; origin?: 'gemma' | 'availability' }

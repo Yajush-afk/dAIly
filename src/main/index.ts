@@ -22,7 +22,7 @@ let sessions: Sessions
 let tray: Tray
 let quitting = false
 const smokeDirectory = process.argv.find(arg => arg.startsWith('--smoke-test='))?.slice('--smoke-test='.length)
-if (smokeDirectory) { app.disableHardwareAcceleration(); const path = resolve(smokeDirectory, 'user-data'); mkdirSync(path, { recursive: true }); app.setPath('userData', path) }
+if (smokeDirectory) { if (process.platform === 'win32') app.disableHardwareAcceleration(); const path = resolve(smokeDirectory, 'user-data'); mkdirSync(path, { recursive: true }); app.setPath('userData', path) }
 const ollama = new OllamaClient()
 function publish(): void { for (const window of BrowserWindow.getAllWindows()) window.webContents.send('state:changed', store.snapshot()) }
 
@@ -79,7 +79,7 @@ app.whenReady().then(() => {
   handle('model:download', () => ollama.pull(progress => { for (const window of BrowserWindow.getAllWindows()) window.webContents.send('model:progress', progress) }))
   handle('model:cancel', () => ollama.cancel())
   handle('model:install', () => shell.openExternal('https://ollama.com/download/windows'))
-  handle('mentor:ask', async input => { try { return await planner.request(MentorInput.parse(input).text) } finally { publish() } })
+  handle('mentor:ask', async input => { try { const request = MentorInput.parse(input); return await planner.request(request.text, request.intent) } finally { publish() } })
   handle('plan:accept', input => { const result = planner.accept(Id.parse(input)); publish(); return result })
   handle('session:action', input => { const result = sessions.act(SessionActionSchema.parse(input)); publish(); updateTray(); return result })
   handle('data:export', async () => {

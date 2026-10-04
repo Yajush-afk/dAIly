@@ -57,9 +57,7 @@ label { display: grid; gap: 7px; }
 .plain-list { list-style: none; padding: 0; margin: 0; }
 .plain-list li { padding: 16px 0; border-bottom: 1px solid var(--line); }
 .plain-list p { margin-top: 8px; }
-.task-row { display: flex; gap: 16px; align-items: end; padding: 12px 0; }
-.task-row label:first-child { flex: 1; }
-.task-row label:last-child { width: 110px; }
+.task-row { display: grid; grid-template-columns: 140px minmax(0, 1fr) 110px; gap: 16px; align-items: end; padding: 12px 0; }
 .composer form > label { margin-top: 16px; }
 .composer { margin-top: 30px; padding-top: 24px; border-top: 1px solid var(--line); }
 .conversation { margin-top: 20px; }
