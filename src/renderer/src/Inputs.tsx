@@ -1,3 +1,4 @@
+import { planningLimits } from '../../shared/planning-limits'
 import { useState, type KeyboardEvent } from 'react'
 
 export function explicitSubmit(event: KeyboardEvent<HTMLFormElement>): void {
@@ -15,7 +16,7 @@ export function MinutesInput({
   value,
   onChange,
   min = 5,
-  max = 120,
+  max = planningLimits.maximumBlockMinutes,
   required = false,
   placeholder,
 }: {

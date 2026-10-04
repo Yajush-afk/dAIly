@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { planningLimits } from './planning-limits'
 
 export const Time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)
 export const Id = z.string().uuid()
@@ -18,7 +19,7 @@ export const ProfileSchema = z
     commuteMinutes: z.number().int().min(0).max(240),
     bedtime: Time,
     wakeTime: Time,
-    focusMinutes: z.number().int().min(5).max(120),
+    focusMinutes: z.number().int().min(5).max(planningLimits.maximumBlockMinutes),
     breakMinutes: z.number().int().min(5).max(60),
     quietStart: Time,
     quietEnd: Time,
@@ -142,7 +143,7 @@ export const SessionSchema = z
     taskTitle: text.optional(),
     startedAt: IsoDate,
     segmentStartedAt: IsoDate.nullable(),
-    targetMinutes: z.number().int().min(1).max(120),
+    targetMinutes: z.number().int().min(1).max(planningLimits.maximumBlockMinutes),
     elapsedSeconds: z.number().nonnegative(),
     state: z.enum(['running', 'paused', 'awaiting-outcome', 'finished']),
     outcome: z.enum(['completed', 'partial', 'interrupted', 'abandoned']).nullable(),
