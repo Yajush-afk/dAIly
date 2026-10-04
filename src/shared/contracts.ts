@@ -1,6 +1,7 @@
 import type { CheckIn, Config, Snapshot } from './state'
 import type { DownloadProgress, ModelStatus } from './ai'
 import type { MentorResult } from './planner'
+import type { SessionAction } from './session'
 export interface DesktopBridge {
   platform: string
   getVersion(): Promise<string>
@@ -15,4 +16,5 @@ export interface DesktopBridge {
   onDownload(callback: (progress: DownloadProgress) => void): () => void
   askMentor(text: string): Promise<MentorResult>
   acceptPlan(id: string): Promise<Snapshot>
+  sessionAction(command: SessionAction): Promise<Snapshot>
 }
