@@ -105,7 +105,9 @@ export function History({ state }: { state: Snapshot }): React.JSX.Element {
               {visible.sessions.map((s) => (
                 <li key={s.id}>
                   <strong>
-                    {state.tasks.find((t) => t.id === s.taskId)?.title || 'Removed task'}
+                    {state.tasks.find((t) => t.id === s.taskId)?.title ||
+                      s.taskTitle ||
+                      'Removed task'}
                   </strong>
                   <small>
                     {date(s.startedAt)} · {s.outcome} · planned {s.targetMinutes} min, reported{' '}
@@ -136,8 +138,11 @@ export function History({ state }: { state: Snapshot }): React.JSX.Element {
                 </ol>
                 {p.deferred.map((d) => (
                   <p key={d.taskId} className="muted">
-                    Deferred: {state.tasks.find((t) => t.id === d.taskId)?.title || 'Removed task'}.{' '}
-                    {d.reason}
+                    Deferred:{' '}
+                    {state.tasks.find((t) => t.id === d.taskId)?.title ||
+                      p.temporaryTasks?.find((task) => task.id === d.taskId)?.title ||
+                      'Removed task'}
+                    . {d.reason}
                   </p>
                 ))}
               </details>

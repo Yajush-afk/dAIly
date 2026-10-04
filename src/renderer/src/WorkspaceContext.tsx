@@ -2,6 +2,7 @@ import { createContext, useContext, useRef, useState } from 'react'
 import type { GoalConversationDraft } from './GoalDiscussion'
 import type { ReactNode } from 'react'
 import type { Snapshot } from '../../shared/state'
+import type { TemporaryTaskDraft } from '../../shared/temporary-tasks'
 import type { MentorResult } from '../../shared/planner'
 import type { DayUpdate, WorkflowResult } from '../../shared/workflow'
 
@@ -15,6 +16,7 @@ export function useConversationController(state: Snapshot) {
   const [open, setOpen] = useState(localStorage.getItem('daily-conversation-collapsed') !== 'true')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [goalDrafts, setGoalDrafts] = useState<Record<string, GoalConversationDraft>>({})
+  const [temporaryDrafts, setTemporaryDrafts] = useState<Record<string, TemporaryTaskDraft[]>>({})
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -70,6 +72,8 @@ export function useConversationController(state: Snapshot) {
   }
   return {
     state,
+    temporaryDrafts,
+    setTemporaryDrafts,
     goalDrafts,
     setGoalDrafts,
     mode,

@@ -1,7 +1,7 @@
 import { z } from 'zod'
-import { Id, TaskSchema } from './state'
+import { Id, TaskFieldsSchema } from './state'
 const text = z.string().trim().min(1).max(1500)
-export const RoadmapTaskSchema = TaskSchema.pick({
+export const RoadmapTaskSchema = TaskFieldsSchema.pick({
   title: true,
   deadline: true,
   estimateMinutes: true,

@@ -80,7 +80,7 @@ export function schedule(
   for (const choice of decision.choices) {
     if (!tasks.has(choice.taskId) || seen.has(choice.taskId))
       throw new Error('Plan refers to an unknown, finished, or duplicate task')
-    if (choice.minutes > state.profile.focusMinutes)
+    if (choice.minutes > state.profile.focusMinutes && tasks.get(choice.taskId)?.goalId !== null)
       throw new Error('A block exceeds the agreed focus duration')
     seen.add(choice.taskId)
   }
@@ -93,7 +93,24 @@ export function schedule(
   const free = availableIntervals(state, now).map((i) => ({ ...i }))
   const blocks: Plan['blocks'] = []
   let previousEnd: number | undefined
-  for (const c of decision.choices) {
+  const choices = decision.choices.flatMap((choice) => {
+    if (tasks.get(choice.taskId)?.goalId !== null) return [choice]
+    const cap = Math.min(
+      state.profile.focusMinutes,
+      currentCheckIn(state, now)?.energy === 'low'
+        ? planningLimits.lowEnergyMinutes
+        : planningLimits.maximumBlockMinutes,
+    )
+    const count = Math.ceil(choice.minutes / cap)
+    // Evenly divide total effort, avoiding an unusable tiny final block.
+    const duration = Math.floor(choice.minutes / count)
+    if (duration < planningLimits.minimumBlockMinutes) return [{ ...choice, minutes: cap }]
+    return Array.from({ length: count }, (_, index) => ({
+      ...choice,
+      minutes: duration + (index < choice.minutes % count ? 1 : 0),
+    }))
+  })
+  for (const c of choices) {
     const task = tasks.get(c.taskId)!
     const requiredBreak = state.profile.breakMinutes * 60000
     const slot = free.find(
@@ -102,10 +119,12 @@ export function schedule(
           c.minutes * 60000 <=
         i.end,
     )
-    if (!slot) {
+    if (!slot || blocks.length + (previousEnd === undefined ? 1 : 2) > 20) {
       deferred.set(c.taskId, {
         taskId: c.taskId,
-        reason: 'This block does not fit before your cutoff and commitments.',
+        reason: blocks.some((block) => block.taskId === c.taskId)
+          ? 'Only part of the estimated work fits. The remaining effort is outside this plan.'
+          : 'This block does not fit before your cutoff and commitments.',
       })
       continue
     }
@@ -141,10 +160,38 @@ export function schedule(
         taskId: task.id,
         reason: 'Left outside this plan. Ask the mentor if you want to change the priorities.',
       })
+  for (const task of tasks.values()) {
+    if (task.goalId !== null || task.estimateMinutes === null) continue
+    const reported =
+      state.sessions
+        .filter((session) => session.taskId === task.id && session.state === 'finished')
+        .reduce((seconds, session) => seconds + session.elapsedSeconds, 0) / 60
+    const remaining = Math.max(0, task.estimateMinutes - reported)
+    const planned = blocks
+      .filter((block) => block.taskId === task.id)
+      .reduce(
+        (minutes, block) => minutes + (Date.parse(block.end) - Date.parse(block.start)) / 60000,
+        0,
+      )
+    if (planned > 0 && planned < remaining)
+      deferred.set(task.id, {
+        taskId: task.id,
+        reason: `${Math.round(planned)} of about ${Math.round(remaining)} remaining minutes are scheduled. The rest still needs time.`,
+      })
+  }
+  const partiallyScheduled = decision.choices.some(
+    (choice) =>
+      blocks
+        .filter((block) => block.taskId === choice.taskId)
+        .reduce(
+          (minutes, block) => minutes + (Date.parse(block.end) - Date.parse(block.start)) / 60000,
+          0,
+        ) < choice.minutes,
+  )
   const summary =
     decision.choices.length && !blocks.length
       ? 'None of the suggested blocks fits your remaining availability. Stop here or ask for a smaller next step.'
-      : decision.choices.some((c) => !blocks.some((b) => b.taskId === c.taskId))
+      : partiallyScheduled
         ? `Start with ${blocks.find((block) => block.kind === 'focus')?.title}. Other suggested work did not fit and is deferred below.`
         : decision.summary
   return {
@@ -154,6 +201,7 @@ export function schedule(
     inputRevision: state.planningRevision,
     status: 'proposed',
     summary,
+    temporaryTasks: state.tasks.filter((task) => task.goalId === null),
     blocks,
     deferred: [...deferred.values()],
   }

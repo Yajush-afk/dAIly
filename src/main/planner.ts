@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+import { TemporaryTaskExtractionSchema } from '../shared/temporary-tasks'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { DecisionSchema, type MentorResult } from '../shared/planner'
@@ -15,23 +17,37 @@ export function planningContext(state: Snapshot, now: number) {
   const week = now - 7 * 86400000
   const goals = new Map(state.goals.map((g) => [g.id, g]))
   const deadline = (task: Snapshot['tasks'][number]): string =>
-    [task.deadline, goals.get(task.goalId)?.deadline].filter((d): d is string => !!d).sort()[0] ||
-    '9999'
+    [task.deadline, goals.get(task.goalId || '')?.deadline]
+      .filter((d): d is string => !!d)
+      .sort()[0] || '9999'
   const todo = state.tasks.filter((t) => t.status === 'todo')
   const tasks = [...todo]
     .sort(
       (a, b) =>
+        Number(b.goalId === null) - Number(a.goalId === null) ||
         deadline(a).localeCompare(deadline(b)) ||
-        (goals.get(b.goalId)?.priority || 1) - (goals.get(a.goalId)?.priority || 1),
+        (goals.get(b.goalId || '')?.priority || 1) - (goals.get(a.goalId || '')?.priority || 1),
     )
     .slice(0, planningLimits.tasksInContext)
     .map((t) => ({
       ...t,
       title: t.title.slice(0, 160),
-      goalPriority: goals.get(t.goalId)?.priority ?? 5,
-      goalDeadline: goals.get(t.goalId)?.deadline ?? null,
-      preferredDailyMinutes: goals.get(t.goalId)?.preferredDailyMinutes ?? null,
-      goalNotes: goals.get(t.goalId)?.notes?.slice(0, 240) ?? '',
+      goalPriority: goals.get(t.goalId || '')?.priority ?? 5,
+      goalDeadline: goals.get(t.goalId || '')?.deadline ?? null,
+      preferredDailyMinutes: goals.get(t.goalId || '')?.preferredDailyMinutes ?? null,
+      remainingEstimateMinutes:
+        t.estimateMinutes === null
+          ? null
+          : Math.max(
+              0,
+              t.estimateMinutes -
+                Math.round(
+                  state.sessions
+                    .filter((session) => session.taskId === t.id && session.state === 'finished')
+                    .reduce((seconds, session) => seconds + session.elapsedSeconds, 0) / 60,
+                ),
+            ),
+      goalNotes: goals.get(t.goalId || '')?.notes?.slice(0, 240) ?? '',
     }))
   const checkIn = currentCheckIn(state, now)
   const limits = decisionConstraints(state, now)
@@ -130,7 +146,7 @@ export function planningContext(state: Snapshot, now: number) {
   }
   return context
 }
-const instructions = `You are dAIly, Kushagra's clear and practical college mentor. Reply to Kushagra as a person. Never narrate your hidden reasoning, label fields, quote IDs, or print implementation details such as "Task ID", "minutes:", "reason:", "choices:", or "deferred:". Return only one concise JSON decision. Use only supplied facts and exact task/goal IDs in fields that request IDs. Priority 5 is highest and 1 is lowest. Compare goal priorities, upcoming deadlines, preferred minutes per day, available time, energy, and recent effort. Preferences are targets that may be exceeded or reduced when today's time, exam urgency, or current priority warrants it; explain a meaningful trade-off. Do not repeat a full task the user has repeatedly deferred; ask one direct question about the recorded obstacle or choose a distinct smaller task. Unknown means unknown. Never invent completed work, time spent, or preferences. Preserve concrete task scope. A short focus block can make partial progress; it does not complete a whole task. Low energy calls for one smaller focus block or rest. If an actionable task fits the available time, make a propose_plan with one or more short blocks. Do not answer with generic encouragement or propose task/preference changes just because the user has little time or low energy. Use propose_changes only when the user asks to edit goals, tasks, or preferences, or a distinct new smaller step is needed to unblock repeated difficulty. Never propose a renamed copy of an existing task or a preference value that is already set. The app schedules only choices in propose_plan, never text in respond. Choose at most ${planningLimits.maximumChoices} blocks, each within focus preference and available time. A plan has kind, summary, choices [{taskId,minutes,reason}], deferred [{taskId,reason}]. Reasons are short sentences for Kushagra with no identifiers. Include only useful deferrals. Ask one question only if the answer changes the decision. respond is for a brief explanation or stop-for-today only, never disguise a task schedule as prose. Avoid em dashes.`
+const instructions = `You are dAIly, Kushagra's clear and practical college mentor. Reply to Kushagra as a person. Never narrate your hidden reasoning, label fields, quote IDs, or print implementation details such as "Task ID", "minutes:", "reason:", "choices:", or "deferred:". Return only one concise JSON decision. Use only supplied facts and exact task/goal IDs in fields that request IDs. Priority 5 is highest and 1 is lowest. Compare goal priorities, upcoming deadlines, preferred minutes per day, available time, energy, and recent effort. Preferences are targets that may be exceeded or reduced when today's time, exam urgency, or current priority warrants it; explain a meaningful trade-off. Do not repeat a full task the user has repeatedly deferred; ask one direct question about the recorded obstacle or choose a distinct smaller task. Unknown means unknown. Never invent completed work, time spent, or preferences. Preserve concrete task scope. A short focus block can make partial progress; it does not complete a whole task. Low energy calls for one smaller focus block or rest. If an actionable task fits the available time, make a propose_plan with one or more short blocks. Do not answer with generic encouragement or propose task/preference changes just because the user has little time or low energy. Use propose_changes only when the user asks to edit goals, tasks, or preferences, or a distinct new smaller step is needed to unblock repeated difficulty. Never propose a renamed copy of an existing task or a preference value that is already set. Confirmed temporary tasks are real obligations for this planning day. Account for each unfinished temporary task in choices or explicitly defer it with a practical reason. Put urgent deadlines ahead of flexible goal work. A temporary task choice may request up to 120 minutes of total work; the application splits it into preferred focus blocks and inserts breaks. Explain partial work honestly. The app schedules only choices in propose_plan, never text in respond. Choose at most ${planningLimits.maximumChoices} blocks, each within focus preference and available time. A plan has kind, summary, choices [{taskId,minutes,reason}], deferred [{taskId,reason}]. Reasons are short sentences for Kushagra with no identifiers. Include only useful deferrals. Ask one question only if the answer changes the decision. respond is for a brief explanation or stop-for-today only, never disguise a task schedule as prose. Avoid em dashes.`
 const readableDecision = (decision: import('../shared/planner').Decision): void => {
   const copy =
     decision.kind === 'propose_plan'
@@ -141,9 +157,11 @@ const readableDecision = (decision: import('../shared/planner').Decision): void 
         ].join(' ')
       : decision.kind === 'propose_changes'
         ? decision.explanation + ' ' + decision.tasks.map((task) => task.title).join(' ')
-        : decision.kind === 'ask_question'
-          ? decision.question
-          : decision.explanation
+        : decision.kind === 'propose_temporary_tasks'
+          ? decision.explanation
+          : decision.kind === 'ask_question'
+            ? decision.question
+            : decision.explanation
   if (
     /task\s*id|\bminutes\s*[:=]|\breason\s*[:=]|\b(kind|choices|deferred)\s*[:=]|acknowledging your situation and prioritizing/i.test(
       copy,
@@ -166,7 +184,11 @@ export function modelFormat(
   const options = [
     DecisionSchema.options[0],
     ...(allowPlanning && taskIds.length ? [DecisionSchema.options[1]] : []),
-    ...(allowPlanning && goalIds.length ? [DecisionSchema.options[2]] : []),
+    ...(allowPlanning &&
+    goalIds.length &&
+    !state.tasks.some((task) => task.goalId === null && task.status === 'todo')
+      ? [DecisionSchema.options[2]]
+      : []),
     DecisionSchema.options[3],
   ]
   const bind = (value: unknown): unknown => {
@@ -285,6 +307,7 @@ export class Planner {
     text: string,
     intent: 'plan' | 'conversation' = 'plan',
     images: string[] = [],
+    discoverTemporaryTasks = false,
   ): Promise<MentorResult> {
     if (this.pending) throw new Error('A planning request is already running')
     this.pending = true
@@ -323,6 +346,96 @@ export class Planner {
         })
         outcome = 'availability'
         return { decision, revision: this.store.revision, durationMs: 0, origin: 'availability' }
+      }
+      if (discoverTemporaryTasks && intent === 'plan' && hasTime) {
+        const extractionMessages: ChatMessage[] = [
+          {
+            role: 'system',
+            content: `Identify new one-off work explicitly mentioned in the latest update, such as assignments, applications, errands, or exam preparation. Return tasks only for work the user still needs to do, not completed events, availability, breaks, or existing tasks. Do not interpret "yes", approvals, or rejected suggestions as new tasks. Copy an exact sourceQuote from the update for each task. Infer duration only when explicitly supplied; otherwise use null. Resolve explicit relative deadlines in the saved timezone, otherwise use null. Do not invent facts. Today is ${DateTime.fromMillis(now, { zone: state.profile.timezone }).toISODate()}. Return compact JSON {tasks:[{title,estimateMinutes,deadline,sourceQuote}]}; return tasks:[] when there is no new work.`,
+          },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              update: text,
+              existingTasks: state.tasks.map(({ title, deadline, estimateMinutes }) => ({
+                title,
+                deadline,
+                estimateMinutes,
+              })),
+            }),
+          },
+        ]
+        let extracted: import('../shared/temporary-tasks').TemporaryTaskDraft[] = []
+        for (let attempt = 0; attempt < planningLimits.maximumAttempts; attempt++) {
+          attempts++
+          const response = await this.model.chat(
+            extractionMessages,
+            z.toJSONSchema(TemporaryTaskExtractionSchema),
+            { maxTokens: 768 },
+          )
+          if (this.store.planningRevision !== state.planningRevision)
+            throw new Error(
+              'Your situation changed while Gemma was thinking. Request a fresh plan.',
+            )
+          try {
+            extracted = TemporaryTaskExtractionSchema.parse(JSON.parse(response.content)).tasks
+            if (extracted.some((task) => !text.includes(task.sourceQuote)))
+              throw new Error('Each sourceQuote must be copied exactly from the latest update.')
+            break
+          } catch (error) {
+            if (attempt === planningLimits.maximumAttempts - 1)
+              throw new Error(
+                'dAIly could not check the new work in your update. Your existing plan is unchanged. Try again.',
+              )
+            extractionMessages.push(
+              { role: 'assistant', content: response.content },
+              { role: 'user', content: `Correct the extraction: ${String(error).slice(0, 1000)}` },
+            )
+          }
+        }
+        const normalize = (title: string) =>
+          title
+            .toLocaleLowerCase()
+            .replace(/[^a-z0-9]+/g, ' ')
+            .trim()
+        const seen = new Set(state.tasks.map((task) => normalize(task.title)))
+        extracted = extracted.filter((task) => {
+          const key = normalize(task.title)
+          if (seen.has(key)) return false
+          seen.add(key)
+          return true
+        })
+        if (extracted.length) {
+          const decision = {
+            kind: 'propose_temporary_tasks' as const,
+            explanation:
+              'You mentioned work outside your goals. Add it to this day before I plan the remaining time?',
+            tasks: extracted,
+            until: new Date(
+              Math.max(...availableIntervals(state, now).map((interval) => interval.end)),
+            ).toISOString(),
+          }
+          const decisionId = randomUUID()
+          this.store.put('messages', {
+            id: decisionId,
+            at: new Date(now).toISOString(),
+            role: 'mentor',
+            channel: 'day',
+            text: decision.explanation,
+            details: {
+              type: 'decision',
+              payload: JSON.stringify({ decision, inputRevision: state.planningRevision }),
+            },
+          })
+          outcome = 'temporary_task_review'
+          return {
+            decision,
+            decisionId,
+            revision: this.store.revision,
+            durationMs: Math.round(performance.now() - started),
+            origin: 'gemma',
+          }
+        }
       }
       if (intent === 'plan' && !state.tasks.some((task) => task.status === 'todo')) {
         const first = [...state.goals].sort((a, b) => b.priority - a.priority)[0]

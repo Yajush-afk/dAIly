@@ -1,3 +1,4 @@
+import type { TemporaryTaskReview } from './temporary-tasks'
 import type { CheckIn, Config, Snapshot } from './state'
 import type { DownloadProgress, ModelStatus } from './ai'
 import type { MentorResult } from './planner'
@@ -28,6 +29,8 @@ export interface DesktopBridge {
   approveRoadmap(input: RoadmapReview): Promise<Snapshot>
   importSchedule(): Promise<ScheduleImportResult | undefined>
   confirmSchedule(input: ScheduleReview): Promise<Snapshot>
+  clearPlan(): Promise<Snapshot>
+  reviewTemporaryTasks(review: TemporaryTaskReview): Promise<WorkflowResult>
   acceptPlan(id: string): Promise<Snapshot>
   sessionAction(command: SessionAction): Promise<Snapshot>
   checkInAndPlan(update: DayUpdate): Promise<WorkflowResult>

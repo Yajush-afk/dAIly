@@ -44,17 +44,22 @@ describe('usable planning cycle', () => {
     })
     let calls = 0
     const planner = new Planner(store, {
-      chat: async () => ({
-        content: JSON.stringify({
-          kind: 'propose_plan',
-          summary:
-            ++calls === 1 ? 'One small step fits.' : 'Build on your reported partial progress.',
-          choices: [{ taskId, minutes: 5, reason: 'A concrete next step.' }],
-          deferred: [],
-        }),
-        durationMs: 1,
-        tokens: 1,
-      }),
+      chat: async (messages) =>
+        messages[0].content.startsWith('Identify new one-off')
+          ? { content: '{"tasks":[]}', durationMs: 1, tokens: 1 }
+          : {
+              content: JSON.stringify({
+                kind: 'propose_plan',
+                summary:
+                  ++calls === 1
+                    ? 'One small step fits.'
+                    : 'Build on your reported partial progress.',
+                choices: [{ taskId, minutes: 5, reason: 'A concrete next step.' }],
+                deferred: [],
+              }),
+              durationMs: 1,
+              tokens: 1,
+            },
     })
     const sessions = new Sessions(store)
     const listeners = new Set<(state: Snapshot) => void>()
@@ -100,6 +105,8 @@ describe('usable planning cycle', () => {
       approveRoadmap: async () => store.snapshot(),
       importSchedule: async () => undefined,
       confirmSchedule: async () => store.snapshot(),
+      clearPlan: async () => application.clearPlan(),
+      reviewTemporaryTasks: (input) => application.reviewTemporaryTasks(input),
       acceptPlan: async (id) => {
         planner.accept(id)
         return changed()

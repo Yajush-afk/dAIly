@@ -181,6 +181,47 @@ export async function smoke(window: BrowserWindow, store: Store, directory: stri
         }
       }
     }
+    const beforeClear = store.config(),
+      historyBeforeClear = store.history({ kind: 'sessions', limit: 20 })
+    const temporaryId = randomUUID()
+    store.put('plans', {
+      id: randomUUID(),
+      createdAt: new Date().toISOString(),
+      contextRevision: store.revision,
+      inputRevision: store.planningRevision,
+      status: 'proposed',
+      summary: 'Plan-scoped smoke work.',
+      blocks: [],
+      deferred: [],
+      temporaryTasks: [
+        {
+          id: temporaryId,
+          goalId: null,
+          title: 'Smoke assignment',
+          estimateMinutes: 60,
+          deadline: null,
+          temporaryUntil: new Date(Date.now() + 3600000).toISOString(),
+          status: 'todo',
+        },
+      ],
+    })
+    assert(
+      !(await js<boolean>(
+        `window.dAIly.getState().then(state => state.tasks.some(task => task.id === '${temporaryId}'))`,
+      )),
+      'Temporary work stays out of the goal task collection',
+    )
+    await js('window.dAIly.clearPlan()')
+    assert(
+      store.openPlans().length === 0 && store.activeTemporaryTasks(Date.now()).length === 0,
+      'Clear plan removes current schedules and temporary work through the desktop bridge',
+    )
+    assert(
+      JSON.stringify(store.config()) === JSON.stringify(beforeClear) &&
+        JSON.stringify(store.history({ kind: 'sessions', limit: 20 })) ===
+          JSON.stringify(historyBeforeClear),
+      'Clearing preserves goals and reported session history',
+    )
     window.close()
     assert(!window.isDestroyed() && !window.isVisible(), 'Closing the window hides it to the tray')
     writeFileSync(

@@ -4,6 +4,7 @@ import {
   ConfigSchema,
   defaultProfile,
   ProfileSchema,
+  TaskSchema,
   schemas,
   type Config,
   type RecordKind,
@@ -185,10 +186,31 @@ export class Store {
       messages: [],
     }
   }
+  invalidatePlanningInputs(): void {
+    this.transaction(() => this.bump(true))
+  }
+  activeTemporaryTasks(now: number): Snapshot['tasks'] {
+    const tasks = new Map<string, Snapshot['tasks'][number]>()
+    for (const plan of this.openPlans())
+      for (const task of plan.temporaryTasks || []) {
+        if (task.goalId === null && task.temporaryUntil && Date.parse(task.temporaryUntil) > now)
+          tasks.set(task.id, task)
+      }
+    const completed = new Set(
+      this.recent('sessions', now - 7 * 86400000)
+        .filter((session) => session.outcome === 'completed')
+        .map((session) => session.taskId),
+    )
+    return [...tasks.values()].map((task) => ({
+      ...task,
+      status: completed.has(task.id) ? 'done' : task.status,
+    }))
+  }
   planningState(now: number): Snapshot {
     return {
       ...this.runtimeState(now),
       ...this.config(),
+      tasks: [...this.config().tasks, ...this.activeTemporaryTasks(now)],
       plans: this.recent('plans', now - 7 * 86400000),
       sessions: this.recent('sessions', now - 7 * 86400000),
       messages: this.dailyConversation(),
@@ -307,6 +329,8 @@ export class Store {
   }
   put<K extends RecordKind>(kind: K, value: Snapshot[K][number]): void {
     const parsed = schemas[kind].parse(value)
+    if (kind === 'tasks' && TaskSchema.parse(value).goalId === null)
+      throw new Error('Temporary work must be embedded in a plan, not saved as a goal task.')
     this.transaction(() => {
       this.db
         .prepare(
@@ -320,13 +344,17 @@ export class Store {
   saveConfig(input: Config): Snapshot {
     const config = ConfigSchema.parse(input)
     const goalIds = new Set(config.goals.map((goal) => goal.id))
-    if (config.tasks.some((task) => !goalIds.has(task.goalId)))
+    if (config.tasks.some((task) => task.goalId === null || !goalIds.has(task.goalId)))
       throw new Error('Every task must belong to a goal')
     for (const entries of [config.goals, config.tasks, config.timetable])
       if (new Set(entries.map((item) => item.id)).size !== entries.length)
         throw new Error('Duplicate record identifiers')
     const active = this.activeSession()
-    if (active && !config.tasks.some((task) => task.id === active.taskId))
+    if (
+      active &&
+      !config.tasks.some((task) => task.id === active.taskId) &&
+      !this.activeTemporaryTasks(Date.now()).some((task) => task.id === active.taskId)
+    )
       throw new Error('Finish the active session before deleting its task')
     const old = this.config()
     const planningChanged =

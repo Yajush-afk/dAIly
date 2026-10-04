@@ -73,7 +73,7 @@ export function orderPlanChoices(state: Snapshot, decision: Decision): Decision 
     const task = tasks.get(taskId)
     if (!task) return '9999'
     return (
-      [task.deadline, goals.get(task.goalId)?.deadline]
+      [task.deadline, goals.get(task.goalId || '')?.deadline]
         .filter((date): date is string => Boolean(date))
         .sort()[0] || '9999'
     )
@@ -93,6 +93,8 @@ export function orderPlanChoices(state: Snapshot, decision: Decision): Decision 
 
 export function validateDecision(state: Snapshot, decision: Decision, now: number): void {
   const constraints = decisionConstraints(state, now)
+  if (decision.kind === 'propose_temporary_tasks')
+    throw new Error('New work requires the separate confirmation workflow.')
   if (
     constraints.maxBlockMinutes < planningLimits.minimumBlockMinutes &&
     (decision.kind === 'propose_plan' || decision.kind === 'propose_changes')
@@ -101,7 +103,25 @@ export function validateDecision(state: Snapshot, decision: Decision, now: numbe
       'No useful time remains today. Recommend rest or stopping, or ask a relevant clarification.',
     )
   if (decision.kind === 'propose_plan') {
-    if (decision.choices.some((c) => c.minutes > constraints.maxBlockMinutes))
+    if (
+      state.tasks.some(
+        (task) =>
+          task.goalId === null &&
+          task.status === 'todo' &&
+          !decision.choices.some((choice) => choice.taskId === task.id) &&
+          !decision.deferred.some((item) => item.taskId === task.id),
+      )
+    )
+      throw new Error(
+        'Account for every confirmed temporary task. Schedule it or give an explicit deferral reason; do not ignore it.',
+      )
+    if (
+      decision.choices.some(
+        (c) =>
+          c.minutes > constraints.maxBlockMinutes &&
+          state.tasks.find((task) => task.id === c.taskId)?.goalId !== null,
+      )
+    )
       throw new Error(
         `Each block must be at most ${constraints.maxBlockMinutes} minutes given current availability and energy.`,
       )

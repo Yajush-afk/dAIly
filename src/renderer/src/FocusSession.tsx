@@ -63,7 +63,11 @@ export function FocusSession({
   }
   return (
     <section aria-label="Focus session">
-      <h2>{state.tasks.find((t) => t.id === session.taskId)?.title || 'Focus session'}</h2>
+      <h2>
+        {[...state.tasks, ...state.plans.flatMap((plan) => plan.temporaryTasks || [])].find(
+          (t) => t.id === session.taskId,
+        )?.title || 'Focus session'}
+      </h2>
       {error && (
         <p role="alert" className="error">
           {error}
