@@ -16,6 +16,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - run: bash -n start-ubuntu.sh
       - run: npm ci
       - run: node scripts/check-electron-install.mjs
   desktop:
@@ -29,6 +30,18 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node scripts/check-electron-install.mjs
+      - name: Validate Windows launcher syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/start-windows.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }
+      - name: Verify portable demo transfer
+        run: |
+          npm run demo -- --seed-only
+          npm run demo -- --export ./artifacts/ci-demo-transfer.db
+          npm run demo -- --import ./artifacts/ci-demo-transfer.db --reset --seed-only
       - name: Prepare native SQLite for Node checks
         run: npm rebuild better-sqlite3
       - run: npm run check

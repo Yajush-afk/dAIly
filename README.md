@@ -31,3 +31,9 @@ The Windows workflow builds an unsigned x64 installer, exercises the packaged ap
 ## Architecture
 
 See [application architecture](docs/architecture.md) for indexed storage, bounded workspace state, application workflows, proposal validity, and remaining limits. [Ubuntu setup and database reset](docs/setup.md#ubuntu-development) includes native-module rebuild commands.
+
+## Launch on another computer
+
+With a checkout of this repository, run `bash ./start-ubuntu.sh` on Ubuntu 24.04 or newer, or `powershell -NoProfile -ExecutionPolicy Bypass -File .\start-windows.ps1` on Windows x64. These scripts install dependencies and local AI, then open the isolated demo. Initial model downloads need internet. Add `--normal` on Ubuntu or `-Normal` on Windows to use personal application data.
+
+For copying an exact demo take between computers, see [Demo recording and database transfer](docs/demo-recording.md).
