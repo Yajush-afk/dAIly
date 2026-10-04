@@ -20,7 +20,7 @@ let sessions: Sessions
 let tray: Tray
 let quitting = false
 const smokeDirectory = process.argv.find(arg => arg.startsWith('--smoke-test='))?.slice('--smoke-test='.length)
-if (smokeDirectory) { const path = resolve(smokeDirectory, 'user-data'); mkdirSync(path, { recursive: true }); app.setPath('userData', path) }
+if (smokeDirectory) { app.disableHardwareAcceleration(); const path = resolve(smokeDirectory, 'user-data'); mkdirSync(path, { recursive: true }); app.setPath('userData', path) }
 const ollama = new OllamaClient()
 function publish(): void { for (const window of BrowserWindow.getAllWindows()) window.webContents.send('state:changed', store.snapshot()) }
 
