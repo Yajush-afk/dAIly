@@ -1,5 +1,6 @@
 import type { CheckIn, Config, Snapshot } from './state'
 import type { DownloadProgress, ModelStatus } from './ai'
+import type { MentorResult } from './planner'
 export interface DesktopBridge {
   platform: string
   getVersion(): Promise<string>
@@ -12,4 +13,6 @@ export interface DesktopBridge {
   cancelModel(): Promise<void>
   openOllamaDownload(): Promise<void>
   onDownload(callback: (progress: DownloadProgress) => void): () => void
+  askMentor(text: string): Promise<MentorResult>
+  acceptPlan(id: string): Promise<Snapshot>
 }

@@ -3,8 +3,10 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { isTrustedRendererUrl } from './security'
 import { Store } from './store'
-import { CheckInSchema, ConfigSchema } from '../shared/state'
+import { CheckInSchema, ConfigSchema, Id } from '../shared/state'
 import { OllamaClient } from './ollama'
+import { Planner } from './planner'
+import { MentorInput } from '../shared/planner'
 
 let rendererUrl = ''
 let store: Store
@@ -26,6 +28,7 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   store = new Store(join(app.getPath('userData'), 'daily.db'))
+  const planner = new Planner(store, ollama)
   const handle = (channel: string, handler: (input: unknown) => unknown): void => {
     ipcMain.handle(channel, (event, input: unknown) => {
       if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame || !isTrustedRendererUrl(event.senderFrame.url, rendererUrl)) throw new Error('Untrusted renderer')
@@ -40,6 +43,8 @@ app.whenReady().then(() => {
   handle('model:download', () => ollama.pull(progress => { for (const window of BrowserWindow.getAllWindows()) window.webContents.send('model:progress', progress) }))
   handle('model:cancel', () => ollama.cancel())
   handle('model:install', () => shell.openExternal('https://ollama.com/download/windows'))
+  handle('mentor:ask', async input => { try { return await planner.request(MentorInput.parse(input).text) } finally { publish() } })
+  handle('plan:accept', input => { const result = planner.accept(Id.parse(input)); publish(); return result })
   createWindow()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
