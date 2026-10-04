@@ -12,7 +12,12 @@ export function ModelSetup(): React.JSX.Element {
     setLoading(true); setError('')
     try { setStatus(await window.dAIly.modelStatus()) } catch (reason) { setError(String(reason)) } finally { setLoading(false) }
   }, [])
-  useEffect(() => { void refresh(); return window.dAIly?.onDownload(setProgress) }, [refresh])
+  useEffect(() => {
+    let active = true
+    void window.dAIly?.modelStatus().then(value => { if (active) setStatus(value) }).catch(reason => { if (active) setError(String(reason)) })
+    const unsubscribe = window.dAIly?.onDownload(setProgress)
+    return () => { active = false; unsubscribe?.() }
+  }, [])
   async function download(): Promise<void> {
     if (!window.dAIly) return
     setDownloading(true); setError(''); setProgress(undefined)
