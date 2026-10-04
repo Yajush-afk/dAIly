@@ -5,5 +5,5 @@ import tailwind from '@tailwindcss/vite'
 export default defineConfig({
   main: { plugins: [externalizeDepsPlugin()] },
   preload: { plugins: [externalizeDepsPlugin()] },
-  renderer: { plugins: [react(), tailwind()], server: { host: '127.0.0.1' } }
+  renderer: { plugins: [react(), tailwind()], server: { host: '127.0.0.1' } },
 })

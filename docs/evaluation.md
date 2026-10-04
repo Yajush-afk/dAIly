@@ -6,11 +6,11 @@ Run on October 4, 2026, on Linux with an i7-11800H, about 15 GiB usable RAM, and
 
 Gemma tag: `gemma3:4b-it-q4_K_M`. Context: 4096 tokens. Temperature: 0.1. Output budget: 384 tokens. Run `npx tsx scripts/evaluate-gemma.mts` to repeat the fixed scenarios. Detailed outputs go into ignored `artifacts/gemma-evaluation.json`.
 
-| Scenario | Total request time | Model calls | Observed decision |
-| --- | --- | --- | --- |
-| Exam tomorrow | 9.5 seconds | 1 | Exam revision first, then DSA, with a break |
-| Low energy, 20 minutes | 16.3 seconds | 2 | Smaller revision task for approval after rejecting an oversized plan |
-| Three interrupted attempts | 12.6 seconds | 1 | Shorter graph block and an explanation acknowledging the starting difficulty |
+| Scenario                   | Total request time | Model calls | Observed decision                                                            |
+| -------------------------- | ------------------ | ----------- | ---------------------------------------------------------------------------- |
+| Exam tomorrow              | 9.5 seconds        | 1           | Exam revision first, then DSA, with a break                                  |
+| Low energy, 20 minutes     | 16.3 seconds       | 2           | Smaller revision task for approval after rejecting an oversized plan         |
+| Three interrupted attempts | 12.6 seconds       | 1           | Shorter graph block and an explanation acknowledging the starting difficulty |
 
 No malformed JSON occurred in these four calls. One semantically invalid plan needed repair. The first, longer configuration timed out at 120 seconds on the cold request. Another early response recommended 45 minutes with only 20 available. Those failures motivated the shorter context, concise response limit, explicit plan instructions, and semantic checks. Warm performance met the 30-second target in this small run. This is not a statistical benchmark.
 
@@ -49,3 +49,17 @@ These human checks remain to be recorded on the Windows laptop:
 5. Record whether deciding what to do felt easier, advice was reasonable, and updates were burdensome. Preserve criticism along with positive feedback.
 
 No friend trial results are claimed in this repository until they actually occur.
+
+## Architecture refactor checks
+
+On October 4, the refactor passed 53 automated tests, including version-two migration preserving exact record payloads, indexed active-session reads, cursor pagination during inserts, relevant-input proposal validity, renderer deltas, offline outcome persistence, duplicate outcome handling, and idempotent reviewed-change approval.
+
+Six fixed Gemma scenarios were repeated twice with different user wording: all 12 passed their automated assertions. Planning requests took 9.1 to 22.4 seconds, including two requests that required a repair. Both exhausted-time cases used the application guard without inference. This remains a small sample, and explanation quality requires human review. Repeat with `npm run evaluate:gemma -- --repeats=2`.
+
+A temporary on-disk SQLite benchmark seeded 3,650 completed sessions, 3,650 historical plans, and 20,000 conversation messages, then added an active session. Across 200 samples, the timer path's 95th percentile was 0.54 ms; the first 20-session history page took 18.9 ms. The initial bounded workspace was about 15 KB. These measurements are specific to this Linux host, include filesystem cache effects, and do not establish Windows performance or arbitrary scale. Run `npm run benchmark:history` to repeat; it never opens the personal database.
+
+Native Electron smoke also received a real Gemma decision through the preload bridge after the refactor. Its test database was isolated. Linux smoke required the explicit test-only sandbox override because the SUID helper needs a sudo permission repair; normal application sandboxing remains enabled. Windows CI checks the packaged application without that override.
+
+See [architecture.md](architecture.md) for the remaining constraints and [setup.md](setup.md) for Ubuntu commands and database reset.
+
+A subsequent query-plan check added an ordering index for newest-record reads and verified that SQLite does not build a temporary sort for the latest messages. The final local benchmark measured timer p95 at 0.36 ms, bounded workspace p95 at 8.9 ms, and the first history page at 9.1 ms with the same synthetic history. Variance between these small runs is expected; neither result is a cross-platform performance guarantee.

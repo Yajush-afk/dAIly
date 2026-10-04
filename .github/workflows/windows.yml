@@ -20,6 +20,8 @@ jobs:
       - name: Prepare native SQLite for Node checks
         run: npm rebuild better-sqlite3
       - run: npm run check
+      - name: Measure bounded history queries
+        run: npm run benchmark:history
       - name: Prepare native SQLite for Electron
         run: npm run postinstall
       - run: node scripts/smoke.mjs

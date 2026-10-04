@@ -28,17 +28,17 @@ Sleep pauses attribution. A restart during a running block asks you to confirm u
 
 ## Troubleshooting
 
-| Situation | Action |
-| --- | --- |
-| Ollama unavailable | Open Ollama on the same Windows laptop and click Check again. Use the default loopback port 11434. |
-| Download interrupted | Retry. Ollama reuses already downloaded layers. Check free disk space and internet connectivity. |
-| Gemma takes too long | Cancel and retry after closing heavy applications. Cold loading can take longer. Current settings use 4096 context tokens and 384 output tokens. |
-| Invalid model response | Your accepted plan stays intact. The harness attempts one repair. Submit a shorter update or check your task estimates. |
-| Situation changed during planning | Submit again. Older model results cannot overwrite newer state. |
-| Block no longer fits | Report current availability and request a fresh plan rather than starting the old block. |
-| No notification | Enable notifications in dAIly and Windows. Check quiet hours, Windows Focus Assist, and notification permissions. |
-| Cannot resume after sleep | Confirm actual focus minutes first. Sleep time is not automatically counted. |
-| Newer database version | Use the version that created the database. Do not delete your records to fix a version mismatch. |
+| Situation                         | Action                                                                                                                                           |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Ollama unavailable                | Open Ollama on the same Windows laptop and click Check again. Use the default loopback port 11434.                                               |
+| Download interrupted              | Retry. Ollama reuses already downloaded layers. Check free disk space and internet connectivity.                                                 |
+| Gemma takes too long              | Cancel and retry after closing heavy applications. Cold loading can take longer. Current settings use 4096 context tokens and 384 output tokens. |
+| Invalid model response            | Your accepted plan stays intact. The harness attempts one repair. Submit a shorter update or check your task estimates.                          |
+| Situation changed during planning | Submit again. Older model results cannot overwrite newer state.                                                                                  |
+| Block no longer fits              | Report current availability and request a fresh plan rather than starting the old block.                                                         |
+| No notification                   | Enable notifications in dAIly and Windows. Check quiet hours, Windows Focus Assist, and notification permissions.                                |
+| Cannot resume after sleep         | Confirm actual focus minutes first. Sleep time is not automatically counted.                                                                     |
+| Newer database version            | Use the version that created the database. Do not delete your records to fix a version mismatch.                                                 |
 
 The installer excludes models, databases, environment files, logs, and development sources. Gemma runtime memory is greater than or different from the download size. The recorded local results and remaining Windows laptop checks are in [evaluation.md](evaluation.md).
 
@@ -47,3 +47,92 @@ The installer excludes models, databases, environment files, logs, and developme
 Use Node 24 and npm. Run `npm ci`, then `npm run dev`. `npm run check` includes type checks, lint, tests, and production bundling. `npm run test:desktop` uses a separate test database and produces smoke reports. `npm run evaluate:gemma` runs the real local model scenarios. `npm run package:win` must run on Windows for the supported installer build.
 
 The dev launcher removes inherited `ELECTRON_RUN_AS_NODE`, which some coding environments set. If a Linux development host has an unusable SUID sandbox helper, fix the Electron sandbox installation or run a development smoke only with `DAILY_LINUX_NO_SANDBOX=1`. The shipped Windows application does not disable its sandbox.
+
+## Ubuntu development
+
+Use an Ubuntu desktop session with Node 24. On this checkout, Node, Ollama, and Gemma are already present. For a fresh machine, install prerequisites first:
+
+```bash
+sudo apt update
+sudo apt install -y git curl build-essential python3 zstd
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh | bash
+export NVM_DIR="$HOME/.nvm"
+. "$NVM_DIR/nvm.sh"
+nvm install 24
+nvm use 24
+```
+
+For this existing workspace:
+
+```bash
+cd /home/yajush-afk/hacktober/BuildForAFriend
+git switch main
+git pull --ff-only
+npm ci
+```
+
+On a fresh checkout, clone `https://github.com/Yajush-afk/dAIly.git` instead. If Ollama is missing, use the [official Linux installer](https://ollama.com/download/linux):
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+Check its local endpoint. If unavailable, run `ollama serve` in a separate terminal and leave it running. An installation managed by systemd can instead use `sudo systemctl start ollama`.
+
+```bash
+curl -fsS http://127.0.0.1:11434/api/tags
+ollama pull gemma3:4b-it-q4_K_M
+```
+
+Pull reuses existing model files. This machine's Electron dependency currently needs its sandbox helper permissions repaired after `npm ci`:
+
+```bash
+sudo chown root:root node_modules/electron/dist/chrome-sandbox
+sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+npm run dev
+```
+
+Run those two permission commands again after reinstalling Electron dependencies if the error returns. The normal development command does not disable sandboxing. Native smoke testing uses an explicit test-only override on this host because the agent cannot provide the sudo password.
+
+### Reset the local database
+
+Quit dAIly from its tray menu and stop the development terminal first. Closing the window alone hides it to the tray. Build once, then ask Electron for the exact data directory rather than assuming the packaged and development names match:
+
+```bash
+npm run build
+DAILY_DATA_DIR="$(npm run data:path --silent)"
+printf '%s\n' "$DAILY_DATA_DIR"
+```
+
+The development directory on this Ubuntu checkout is `/home/yajush-afk/.config/daily-mentor`. The diagnostic command exits before opening a renderer or database. Reset removes profile, tasks, timetable, plans, sessions, conversation, notifications, and diagnostics. It does not remove Ollama or model weights. Back up the SQLite files, then remove only the database files:
+
+```bash
+DAILY_BACKUP_DIR="$DAILY_DATA_DIR/database-backup-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$DAILY_BACKUP_DIR"
+for DAILY_DB_FILE in daily.db daily.db-wal daily.db-shm; do
+  if [ -f "$DAILY_DATA_DIR/$DAILY_DB_FILE" ]; then
+    cp -a "$DAILY_DATA_DIR/$DAILY_DB_FILE" "$DAILY_BACKUP_DIR/"
+  fi
+done
+rm -f -- "$DAILY_DATA_DIR/daily.db" "$DAILY_DATA_DIR/daily.db-wal" "$DAILY_DATA_DIR/daily.db-shm"
+npm run dev
+```
+
+### Developer checks
+
+`npm ci` prepares SQLite for Electron. Node tests and evaluations need the Node build of the native module; rebuild it back for Electron afterward:
+
+```bash
+npm rebuild better-sqlite3
+npm run check
+npm run benchmark:history
+npm run evaluate:gemma -- --repeats=2
+npm run postinstall
+npm run dev
+```
+
+Planning diagnostics retain the latest 1,000 requests in the database. They contain timings, attempt counts, result kinds, and validation error codes, without raw prompts or model output. To inspect them with the optional SQLite CLI:
+
+```bash
+sqlite3 "$DAILY_DATA_DIR/daily.db" 'SELECT value FROM diagnostics ORDER BY id DESC LIMIT 20;'
+```

@@ -27,3 +27,7 @@ Electron main owns SQLite, scheduling, session transitions, notifications, and O
 The Windows workflow builds an unsigned x64 installer, exercises the packaged app, and checks that reinstalling and uninstalling retain user data. Models and personal records are excluded.
 
 `@electron/get` is pinned to 5.1.0 for electron-builder through an npm override. This replaces its older downloader chain with the same version used by Electron and removes the vulnerable HTTP cache dependency. Installer and packaged smoke checks verify compatibility.
+
+## Architecture
+
+See [application architecture](docs/architecture.md) for indexed storage, bounded workspace state, application workflows, proposal validity, and remaining limits. [Ubuntu setup and database reset](docs/setup.md#ubuntu-development) includes native-module rebuild commands.
