@@ -111,18 +111,20 @@ describe('usable planning cycle', () => {
       checkInAndPlan: (input) => application.checkInAndPlan(input),
       recordOutcome: (command) => application.recordOutcome(command),
       approveChanges: async (review) => application.approveChanges(review),
+      getDashboardSummary: async () => store.dashboardSummary(),
       getHistory: async (query) => store.history(query),
       exportData: async () => ({ cancelled: true }),
     }
     window.dAIly = api
     const user = userEvent.setup()
     render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Plan my day' }))
     await screen.findByRole('heading', { name: 'What fits today?' })
     await user.selectOptions(screen.getByLabelText('Energy'), 'okay')
     await user.type(screen.getByLabelText('What changed?'), 'I have a short evening.')
-    await user.click(screen.getByRole('button', { name: 'Plan with this update' }))
-    await user.click(await screen.findByRole('button', { name: 'Accept plan' }))
-    await user.click(await screen.findByRole('button', { name: 'Start focus session' }))
+    await user.click(screen.getByRole('button', { name: 'Plan my day' }))
+    await user.click((await screen.findAllByRole('button', { name: 'Apply plan' }))[0])
+    await user.click(await screen.findByRole('button', { name: 'Start focus' }))
     await user.click(await screen.findByRole('button', { name: 'Pause' }))
     await user.click(await screen.findByRole('button', { name: 'Resume' }))
     await user.click(await screen.findByRole('button', { name: 'Finish early' }))

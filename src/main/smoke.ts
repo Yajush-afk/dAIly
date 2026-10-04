@@ -132,9 +132,9 @@ export async function smoke(window: BrowserWindow, store: Store, directory: stri
       'Explicit reported completion changes task status',
     )
     // React renders updates asynchronously. Poll for the actual visible UI.
-    for (const page of ['Today', 'Goals', 'History', 'Settings']) {
+    for (const page of ['Today', 'Goals', 'Progress', 'Settings']) {
       await js(
-        `Array.from(document.querySelectorAll('nav button')).find(b => b.textContent === '${page}').click()`,
+        `Array.from(document.querySelectorAll('[data-slot=sidebar-menu-button]')).find(b => b.textContent === '${page}').click()`,
       )
       for (let attempt = 0; attempt < 40; attempt++) {
         if (await js(`document.querySelector('h1')?.textContent === '${page}'`)) break
@@ -144,13 +144,14 @@ export async function smoke(window: BrowserWindow, store: Store, directory: stri
         await js(`document.querySelector('h1')?.textContent === '${page}'`),
         `${page} navigation renders`,
       )
-      if (page === 'History') {
+      if (page === 'Progress') {
+        const reported = store.history({ kind: 'sessions', limit: 20 }).totals.sessions
         for (let attempt = 0; attempt < 40; attempt++) {
-          if (await js(`document.body.textContent.includes('1 reported sessions')`)) break
+          if (await js(`document.body.textContent.includes('${reported} reported sessions')`)) break
           await new Promise((resolve) => setTimeout(resolve, 50))
         }
         assert(
-          await js(`document.body.textContent.includes('1 reported sessions')`),
+          await js(`document.body.textContent.includes('${reported} reported sessions')`),
           'Paginated history loads through the desktop bridge',
         )
       }
