@@ -211,6 +211,7 @@ app
       updateTray()
       return result
     })
+    handle('dashboard:get', () => store.dashboardSummary())
     handle('history:get', (input) => store.history(HistoryQuerySchema.parse(input)))
     handle('day:checkin', (input) => application.checkInAndPlan(DayUpdateSchema.parse(input)))
     handle('day:approve-changes', (input) =>

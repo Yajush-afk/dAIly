@@ -3,7 +3,7 @@ import type { DownloadProgress, ModelStatus } from './ai'
 import type { MentorResult } from './planner'
 import type { SessionAction } from './session'
 import type { DayUpdate, ReviewedChanges, WorkflowResult } from './workflow'
-import type { HistoryQuery, HistoryPage } from './history'
+import type { HistoryQuery, HistoryPage, DashboardSummary } from './history'
 import type { GoalDiscussionInput, GoalDiscussionResult, RoadmapReview } from './goal-mentor'
 import type { ScheduleImportResult, ScheduleReview } from './timetable-import'
 export type StateUpdate = Partial<Snapshot> & { revision: number }
@@ -33,6 +33,7 @@ export interface DesktopBridge {
   checkInAndPlan(update: DayUpdate): Promise<WorkflowResult>
   recordOutcome(command: Extract<SessionAction, { action: 'outcome' }>): Promise<WorkflowResult>
   approveChanges(review: ReviewedChanges): Promise<Snapshot>
+  getDashboardSummary(): Promise<DashboardSummary>
   getHistory(query: HistoryQuery): Promise<HistoryPage>
   exportData(): Promise<{ cancelled: boolean; path?: string }>
 }
