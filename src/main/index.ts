@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, Tray, Menu, nativeImage, Notification, powerMonitor } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, Tray, Menu, nativeImage, Notification, powerMonitor, dialog } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { isTrustedRendererUrl } from './security'
@@ -13,6 +13,8 @@ import { arrivalDue, LocalNotifications } from './notifications'
 import { resolve } from 'node:path'
 import { smoke } from './smoke'
 import { mkdirSync } from 'node:fs'
+import { writeFile, rename, unlink } from 'node:fs/promises'
+import { serializeExport } from './export'
 
 let rendererUrl = ''
 let store: Store
@@ -80,6 +82,14 @@ app.whenReady().then(() => {
   handle('mentor:ask', async input => { try { return await planner.request(MentorInput.parse(input).text) } finally { publish() } })
   handle('plan:accept', input => { const result = planner.accept(Id.parse(input)); publish(); return result })
   handle('session:action', input => { const result = sessions.act(SessionActionSchema.parse(input)); publish(); updateTray(); return result })
+  handle('data:export', async () => {
+    const selection = await dialog.showSaveDialog({ title: 'Export dAIly records', defaultPath: join(app.getPath('documents'), 'daily-records.json'), filters: [{ name: 'JSON records', extensions: ['json'] }] })
+    if (selection.canceled || !selection.filePath) return { cancelled: true }
+    const temporary = `${selection.filePath}.tmp-${process.pid}`
+    try { await writeFile(temporary, serializeExport(store.snapshot(), app.getVersion()), { encoding: 'utf8', mode: 0o600 }); await rename(temporary, selection.filePath) }
+    finally { await unlink(temporary).catch(() => undefined) }
+    return { cancelled: false, path: selection.filePath }
+  })
   const image = nativeImage.createFromPath(join(__dirname, '../../resources/icon.png'))
   tray = new Tray(image.resize({ width: 20, height: 20 })); tray.setToolTip('dAIly'); tray.on('double-click', openWindow); updateTray()
   applyLogin(); createWindow()

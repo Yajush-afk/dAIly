@@ -23,8 +23,20 @@ jobs:
       - name: Prepare native SQLite for Electron
         run: npm run postinstall
       - run: node scripts/smoke.mjs
+      - name: Build unsigned Windows installer
+        run: npm run package:win
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Check installation, packaged app, and data preservation
+        run: node scripts/check-package.mjs
+      - name: Exercise installed application
+        run: ./scripts/install-smoke.ps1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: windows-desktop-smoke
-          path: artifacts/desktop-smoke
+          path: artifacts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: daily-windows-x64
+          path: release/dAIly-Setup-*-x64.exe

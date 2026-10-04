@@ -17,4 +17,5 @@ export interface DesktopBridge {
   askMentor(text: string): Promise<MentorResult>
   acceptPlan(id: string): Promise<Snapshot>
   sessionAction(command: SessionAction): Promise<Snapshot>
+  exportData(): Promise<{ cancelled: boolean; path?: string }>
 }

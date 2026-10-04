@@ -6,13 +6,15 @@
   "author": "Yajush-afk",
   "license": "MIT",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "node scripts/dev.mjs",
     "preview:ui": "vite --config vite.preview.config.ts",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:desktop": "npm run build && node scripts/smoke.mjs",
+    "evaluate:gemma": "tsx scripts/evaluate-gemma.mts",
     "check": "npm run typecheck && npm run lint && npm test && npm run build",
     "package": "npm run build && electron-builder",
     "package:win": "npm run build && electron-builder --win --x64",
@@ -26,10 +28,30 @@
     },
     "files": [
       "out/**/*",
+      "resources/icon.png",
       "package.json"
     ],
+    "asar": true,
+    "forceCodeSigning": false,
     "win": {
-      "target": "nsis"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "resources/icon.ico",
+      "artifactName": "dAIly-Setup-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": true
     },
     "linux": {
       "target": "dir"
@@ -43,6 +65,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@electron/asar": "3.4.1",
     "@eslint/js": "9.39.5",
     "@tailwindcss/vite": "4.3.3",
     "@testing-library/jest-dom": "7.0.1",
@@ -73,5 +96,10 @@
     "esbuild@0.25.12": true,
     "esbuild@0.28.2": true,
     "electron-winstaller@5.4.0": true
+  },
+  "overrides": {
+    "app-builder-lib": {
+      "@electron/get": "5.1.0"
+    }
   }
 }
