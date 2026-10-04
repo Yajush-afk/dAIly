@@ -195,11 +195,18 @@ app
     handle('mentor:ask', async (input) => {
       try {
         const request = MentorInput.parse(input)
-        return await planner.request(request.text, request.intent, request.images)
+        return await planner.request(
+          request.text,
+          request.intent,
+          request.images,
+          request.intent === 'plan',
+        )
       } finally {
         publish()
       }
     })
+    handle('plan:clear', () => application.clearPlan())
+    handle('day:temporary-tasks', (input) => application.reviewTemporaryTasks(input))
     handle('plan:accept', (input) => {
       const result = planner.accept(Id.parse(input))
       publish()

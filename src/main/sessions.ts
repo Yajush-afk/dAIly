@@ -66,7 +66,9 @@ export class Sessions {
       if (active) throw new Error('Finish the current session before starting another.')
       const plan = [...state.plans].reverse().find((p) => p.status === 'accepted')
       const block = plan?.blocks.find((b) => b.id === command.blockId && b.kind === 'focus')
-      const task = state.tasks.find((t) => t.id === block?.taskId && t.status === 'todo')
+      const task = [...state.tasks, ...this.store.activeTemporaryTasks(now)].find(
+        (t) => t.id === block?.taskId && t.status === 'todo',
+      )
       if (!block || !task || this.store.sessionForBlock(block.id))
         throw new Error('Choose an unfinished block from your accepted plan.')
       const minutes = Math.round((Date.parse(block.end) - Date.parse(block.start)) / 60000)
@@ -84,6 +86,7 @@ export class Sessions {
         this.store.put('sessions', {
           id: randomUUID(),
           taskId: task.id,
+          taskTitle: task.title,
           blockId: block.id,
           startedAt: iso,
           segmentStartedAt: iso,

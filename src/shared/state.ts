@@ -58,16 +58,21 @@ export const GoalSchema = z
     notes: z.string().trim().max(2000).optional(),
   })
   .strict()
-export const TaskSchema = z
+export const TaskFieldsSchema = z
   .object({
     id: Id,
-    goalId: Id,
+    goalId: Id.nullable(),
+    temporaryUntil: IsoDate.optional(),
     title: text,
     estimateMinutes: z.number().int().min(5).max(100000).nullable(),
     deadline: z.string().date().nullable(),
     status: z.enum(['todo', 'done']),
   })
   .strict()
+export const TaskSchema = TaskFieldsSchema.refine(
+  (task) => (task.goalId === null ? !!task.temporaryUntil : !task.temporaryUntil),
+  { message: 'Temporary tasks require an expiry and no goal; goal subtasks require a goal.' },
+)
 export const TimetableSchema = z
   .object({
     id: Id,
@@ -118,6 +123,13 @@ export const PlanSchema = z
     inputRevision: z.number().int().nonnegative().optional(),
     status: z.enum(['proposed', 'accepted', 'superseded']),
     summary: z.string().max(2000),
+    temporaryTasks: z
+      .array(TaskSchema)
+      .max(20)
+      .refine((tasks) => tasks.every((task) => task.goalId === null), {
+        message: 'Only temporary work can be embedded in a plan.',
+      })
+      .optional(),
     blocks: z.array(BlockSchema).max(20),
     deferred: z.array(z.object({ taskId: Id, reason: z.string().max(1000) }).strict()).max(100),
   })
@@ -127,6 +139,7 @@ export const SessionSchema = z
     id: Id,
     taskId: Id,
     blockId: Id.nullable(),
+    taskTitle: text.optional(),
     startedAt: IsoDate,
     segmentStartedAt: IsoDate.nullable(),
     targetMinutes: z.number().int().min(1).max(120),

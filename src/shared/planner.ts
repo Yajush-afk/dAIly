@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { TemporaryTaskDecisionSchema } from './temporary-tasks'
 import { Id } from './state'
 import { planningLimits } from './planning-limits'
 
@@ -60,6 +61,7 @@ export const DecisionSchema = z.discriminatedUnion('kind', [
     })
     .strict(),
   z.object({ kind: z.literal('respond'), explanation: reason }).strict(),
+  TemporaryTaskDecisionSchema,
 ])
 export type Decision = z.infer<typeof DecisionSchema>
 export const MentorInput = z

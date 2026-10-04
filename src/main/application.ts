@@ -1,3 +1,4 @@
+import { TemporaryTaskDecisionSchema, TemporaryTaskReviewSchema } from '../shared/temporary-tasks'
 import { randomUUID } from 'node:crypto'
 import { DateTime } from 'luxon'
 import { CheckInSchema, type Snapshot } from '../shared/state'
@@ -41,9 +42,9 @@ export class DayApplication {
     private clock = Date.now,
     private changed: () => void = () => {},
   ) {}
-  private async reconsider(text: string): Promise<WorkflowResult> {
+  private async reconsider(text: string, discover = false): Promise<WorkflowResult> {
     try {
-      const result = await this.planner.request(text)
+      const result = await this.planner.request(text, 'plan', [], discover)
       return { state: this.store.view(), result }
     } catch (error) {
       return { state: this.store.view(), planningError: String(error) }
@@ -118,7 +119,98 @@ export class DayApplication {
     this.changed()
     return this.reconsider(
       update.text || 'Help me choose an achievable plan with the time and energy I reported.',
+      true,
     )
+  }
+  async reviewTemporaryTasks(input: unknown): Promise<WorkflowResult> {
+    const review = TemporaryTaskReviewSchema.parse(input)
+    if (this.store.proposalApplied(review.decisionId))
+      return { state: this.store.view(this.clock()) }
+    const message = this.store.get('messages', review.decisionId)
+    if (message?.role !== 'mentor' || message.details?.type !== 'decision')
+      throw new Error('This suggestion is no longer available.')
+    const saved = z
+      .object({ decision: TemporaryTaskDecisionSchema, inputRevision: z.number().int() })
+      .parse(JSON.parse(message.details.payload))
+    if (
+      saved.inputRevision !== this.store.planningRevision ||
+      Date.parse(saved.decision.until) <= this.clock()
+    )
+      throw new Error('Your day changed. Ask for a fresh plan before adding this work.')
+    if (
+      review.tasks.some(
+        (task) =>
+          !saved.decision.tasks.some((original) => original.sourceQuote === task.sourceQuote),
+      )
+    )
+      throw new Error('Review only tasks from this suggestion.')
+    const normalize = (title: string) => title.toLocaleLowerCase().trim()
+    if (new Set(review.tasks.map((task) => normalize(task.title))).size !== review.tasks.length)
+      throw new Error('Each temporary task must have a distinct title.')
+    this.store.transaction(() => {
+      if (review.action === 'accept') {
+        this.store.invalidatePlanningInputs()
+        const tasks = review.tasks.map((task) => ({
+          id: randomUUID(),
+          goalId: null,
+          temporaryUntil: saved.decision.until,
+          title: task.title,
+          estimateMinutes: task.estimateMinutes,
+          deadline: task.deadline,
+          status: 'todo' as const,
+        }))
+        const carried = this.store.activeTemporaryTasks(this.clock())
+        if (carried.length + tasks.length > 8)
+          throw new Error(
+            'There are too many temporary tasks in this day. Clear the plan before adding more.',
+          )
+        this.store.put('plans', {
+          id: randomUUID(),
+          createdAt: new Date(this.clock()).toISOString(),
+          contextRevision: this.store.revision,
+          inputRevision: this.store.planningRevision,
+          status: 'proposed',
+          summary: 'Temporary work confirmed. Review the revised schedule before applying it.',
+          blocks: [],
+          deferred: [],
+          temporaryTasks: [...carried, ...tasks],
+        })
+      }
+      this.store.recordApproval(review.decisionId, this.clock())
+      this.store.put('messages', {
+        id: randomUUID(),
+        at: new Date(this.clock()).toISOString(),
+        role: 'user',
+        channel: 'day',
+        text:
+          review.action === 'accept'
+            ? 'Confirmed this temporary work for the plan.'
+            : 'Skipped adding this temporary work.',
+        details: {
+          type: 'changes-accept',
+          payload: JSON.stringify({ decisionId: review.decisionId }),
+        },
+      })
+    })
+    this.changed()
+    return this.reconsider(
+      review.action === 'accept'
+        ? 'I confirmed temporary work for this plan. Prioritize its deadline, account for its estimated total effort and breaks, then fit remaining goal work honestly. Propose the full schedule for my review.'
+        : 'I chose not to add that work. Plan using only existing tasks.',
+    )
+  }
+  clearPlan(): Snapshot {
+    if (this.sessions.active())
+      throw new Error(
+        'Finish or stop the active focus session and save its outcome before clearing the plan.',
+      )
+    this.store.transaction(() => {
+      for (const plan of this.store.openPlans())
+        this.store.put('plans', { ...plan, status: 'superseded' })
+      this.store.invalidatePlanningInputs()
+    })
+    this.changed()
+    return this.store.view(this.clock())
   }
   async recordOutcome(
     command: Extract<SessionAction, { action: 'outcome' }>,
