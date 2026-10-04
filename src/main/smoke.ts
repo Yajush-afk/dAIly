@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Store } from './store'
 import { defaultProfile } from '../shared/state'
-import type { MentorResult } from '../shared/planner'
+import type { WorkflowResult } from '../shared/workflow'
 
 // Invoked only with an explicit test flag. The entry point redirects userData
 // to an isolated directory before Electron opens any database.
@@ -48,14 +48,34 @@ export async function smoke(window: BrowserWindow, store: Store, directory: stri
     }
     await js(`window.dAIly.saveConfig(${JSON.stringify(config)})`)
     assert(store.snapshot().tasks[0].id === taskId, 'Typed renderer command persists into SQLite')
+    const checkIn = {
+      text: 'My available time has ended.',
+      energy: 'okay',
+      until: new Date().toISOString().slice(11, 16),
+      busyStart: '',
+      busyEnd: '',
+    }
+    const guarded = await js<WorkflowResult>(
+      `window.dAIly.checkInAndPlan(${JSON.stringify(checkIn)})`,
+    )
+    assert(
+      guarded.result?.origin === 'availability',
+      'Application check-in workflow persists and respects exhausted availability',
+    )
+    await js(
+      `window.dAIly.saveCheckIn(${JSON.stringify({ id: randomUUID(), at: new Date().toISOString(), availableUntil: null, energy: 'okay', note: 'Time available for the test session.', busy: [] })})`,
+    )
     if (process.argv.includes('--smoke-with-model')) {
       assert(
         await js(`window.dAIly.modelStatus().then(status => status.ready)`),
         'Local Gemma is ready in the packaged app',
       )
-      const response = await js<MentorResult>(
-        `window.dAIly.askMentor('Propose an achievable next block from my concrete tasks, unless you need one relevant question.')`,
+      const workflow = await js<WorkflowResult>(
+        `window.dAIly.checkInAndPlan(${JSON.stringify({ ...checkIn, until: '23:59', text: 'Propose an achievable next block from my concrete tasks, unless you need one relevant question.' })})`,
       )
+      const response = workflow.result
+      assert(response, 'Check-in workflow returns a model decision')
+      if (!response) throw new Error(workflow.planningError || 'Model decision missing')
       assert(
         response.decision.kind && response.durationMs > 0,
         'Real Gemma response crosses the packaged preload bridge',
@@ -94,7 +114,14 @@ export async function smoke(window: BrowserWindow, store: Store, directory: stri
       'Finishing a timer does not complete a task',
     )
     await js(
-      `window.dAIly.sessionAction(${JSON.stringify({ action: 'outcome', id, outcome: 'completed', elapsedSeconds: 600, work: 'Reviewed the solution.', interruption: '' })})`,
+      `window.dAIly.saveCheckIn(${JSON.stringify({ id: randomUUID(), at: new Date().toISOString(), availableUntil: new Date().toISOString(), energy: 'okay', note: 'Stop after this session.', busy: [] })})`,
+    )
+    const outcome = await js<WorkflowResult>(
+      `window.dAIly.recordOutcome(${JSON.stringify({ action: 'outcome', id, outcome: 'completed', elapsedSeconds: 600, work: 'Reviewed the solution.', interruption: '' })})`,
+    )
+    assert(
+      outcome.result?.origin === 'availability',
+      'Application outcome workflow saves work and reconsiders availability',
     )
     assert(
       store.snapshot().tasks[0].status === 'done',
@@ -113,6 +140,16 @@ export async function smoke(window: BrowserWindow, store: Store, directory: stri
         await js(`document.querySelector('h1')?.textContent === '${page}'`),
         `${page} navigation renders`,
       )
+      if (page === 'History') {
+        for (let attempt = 0; attempt < 40; attempt++) {
+          if (await js(`document.body.textContent.includes('1 reported sessions')`)) break
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        assert(
+          await js(`document.body.textContent.includes('1 reported sessions')`),
+          'Paginated history loads through the desktop bridge',
+        )
+      }
       for (const [width, height] of [
         [1280, 800],
         [900, 650],
