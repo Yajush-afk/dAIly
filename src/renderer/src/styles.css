@@ -53,6 +53,14 @@ label { display: grid; gap: 7px; }
 .timeline { list-style: none; padding: 0; margin: 0; }
 .timeline li { display: flex; gap: 24px; padding: 16px 0; border-bottom: 1px solid var(--line); }
 .timeline time { width: 100px; flex-shrink: 0; color: var(--muted); font-size: 13px; padding-top: 3px; }
+.timeline small, .plain-list small { display: block; margin-top: 4px; }
+.plain-list { list-style: none; padding: 0; margin: 0; }
+.plain-list li { padding: 16px 0; border-bottom: 1px solid var(--line); }
+.plain-list p { margin-top: 8px; }
+.task-row { display: flex; gap: 16px; align-items: end; padding: 12px 0; }
+.task-row label:first-child { flex: 1; }
+.task-row label:last-child { width: 110px; }
+.composer form > label { margin-top: 16px; }
 .composer { margin-top: 30px; padding-top: 24px; border-top: 1px solid var(--line); }
 .conversation { margin-top: 20px; }
 .conversation article { padding: 14px 0; white-space: pre-wrap; }

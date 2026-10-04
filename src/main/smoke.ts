@@ -21,7 +21,7 @@ export async function smoke(window: BrowserWindow, store: Store, directory: stri
     const now = Date.now(), blockId = randomUUID()
     store.put('plans', { id: randomUUID(), createdAt: new Date(now).toISOString(), contextRevision: store.revision, status: 'accepted', summary: 'A useful evening starts with one step.', blocks: [{ id: blockId, taskId, kind: 'focus', title: 'Review one graph problem', start: new Date(now).toISOString(), end: new Date(now + 1800000).toISOString(), reason: 'You have thirty minutes available.' }], deferred: [] })
     await js(`window.dAIly.sessionAction(${JSON.stringify({ action: 'start', blockId })})`)
-    const id = store.snapshot().sessions[0].id
+    const id = store.snapshot().sessions.find(s => s.blockId === blockId)!.id
     await js(`window.dAIly.sessionAction(${JSON.stringify({ action: 'pause', id })})`)
     await js(`window.dAIly.sessionAction(${JSON.stringify({ action: 'resume', id })})`)
     await js(`window.dAIly.sessionAction(${JSON.stringify({ action: 'finish', id })})`)

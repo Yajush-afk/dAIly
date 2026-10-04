@@ -45,7 +45,7 @@ export class OllamaClient {
       const response = await this.fetcher('http://127.0.0.1:11434/api/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.any([signal, AbortSignal.timeout(120000)]),
-        body: JSON.stringify({ model: MODEL, messages, format, stream: false, keep_alive: '5m', options: { num_ctx: 4096, num_predict: 768, temperature: 0.1 } })
+        body: JSON.stringify({ model: MODEL, messages, format, stream: false, keep_alive: '5m', options: { num_ctx: 4096, num_predict: 384, temperature: 0.1 } })
       })
       if (!response.ok) throw new Error(`Ollama could not generate a response (${response.status}). Check model setup and retry.`)
       const result = z.object({ message: z.object({ content: z.string() }), eval_count: z.number().optional() }).parse(await response.json())

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { Store } from '../src/main/store'
-import { Planner } from '../src/main/planner'
+import { Planner, decisionConstraints } from '../src/main/planner'
 import { Sessions } from '../src/main/sessions'
 import { schedule, availableIntervals } from '../src/main/scheduler'
 import { arrivalDue } from '../src/main/notifications'
@@ -18,6 +18,13 @@ function fixture(): { store: Store; now: number } {
 }
 const proposal = (s: Snapshot) => ({ kind: 'propose_plan' as const, summary: 'Two achievable blocks', choices: s.tasks.map(t => ({ taskId: t.id, minutes: 30, reason: 'Your exam is tomorrow.' })), deferred: [] })
 describe('complete workflow safeguards', () => {
+  it('reduces low-energy block limits and identifies repeated interruptions', () => {
+    const { store, now } = fixture(), s = store.snapshot()
+    s.checkIns.push({ id: randomUUID(), at: new Date(now).toISOString(), availableUntil: new Date(now + 120 * 60000).toISOString(), energy: 'low', note: '', busy: [] })
+    for (let day = 1; day <= 3; day++) s.sessions.push({ id: randomUUID(), taskId: s.tasks[0].id, blockId: null, startedAt: new Date(now - day * 86400000).toISOString(), targetMinutes: 30, elapsedSeconds: 300, state: 'finished', outcome: 'interrupted', work: '', interruption: 'Could not start', segmentStartedAt: null, finishedAt: new Date(now).toISOString(), needsReconciliation: false })
+    expect(decisionConstraints(s, now).maxBlockMinutes).toBe(20)
+    expect(decisionConstraints(s, now).repeatedObstacles[0].taskId).toBe(s.tasks[0].id); store.close()
+  })
   it('places breaks without crossing unavailable intervals', () => {
     const { store, now } = fixture(), s = store.snapshot()
     s.checkIns.push({ id: randomUUID(), at: new Date(now).toISOString(), availableUntil: new Date(now + 100 * 60000).toISOString(), energy: 'okay', note: '', busy: [{ start: new Date(now + 35 * 60000).toISOString(), end: new Date(now + 50 * 60000).toISOString(), title: 'Dinner' }] })
