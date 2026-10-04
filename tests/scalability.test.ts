@@ -8,6 +8,7 @@ import { Store } from '../src/main/store'
 import { Planner } from '../src/main/planner'
 import { Sessions } from '../src/main/sessions'
 import { DayApplication } from '../src/main/application'
+import { decisionConstraints } from '../src/main/policy'
 import { stateChanges } from '../src/main/state-updates'
 import { defaultProfile } from '../src/shared/state'
 
@@ -293,6 +294,23 @@ describe('durable application architecture', () => {
     expect(report).toContain('invalid_json')
     expect(report).not.toContain('private-model-output-marker')
     expect(report).not.toContain('private-user-marker')
+    store.close()
+  })
+  it('does not keep asking about deferrals after a task is completed', () => {
+    const { store, taskId } = setup(),
+      state = store.snapshot()
+    state.plans = [1, 2, 3].map((day) => ({
+      id: randomUUID(),
+      createdAt: new Date(now - day * 86400000).toISOString(),
+      contextRevision: 0,
+      summary: 'Deferred',
+      status: 'superseded',
+      blocks: [],
+      deferred: [{ taskId, reason: 'Other work' }],
+    }))
+    expect(decisionConstraints(state, now).repeatedObstacles).toHaveLength(1)
+    state.tasks[0].status = 'done'
+    expect(decisionConstraints(state, now).repeatedObstacles).toEqual([])
     store.close()
   })
 })

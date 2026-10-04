@@ -65,13 +65,17 @@ export async function smoke(window: BrowserWindow, store: Store, directory: stri
     await js(
       `window.dAIly.saveCheckIn(${JSON.stringify({ id: randomUUID(), at: new Date().toISOString(), availableUntil: null, energy: 'okay', note: 'Time available for the test session.', busy: [] })})`,
     )
+    // Leave a full test window even when CI starts close to midnight.
+    config.profile.wakeTime = new Date().toISOString().slice(11, 16)
+    config.profile.bedtime = new Date(Date.now() + 3 * 3600000).toISOString().slice(11, 16)
+    await js(`window.dAIly.saveConfig(${JSON.stringify(config)})`)
     if (process.argv.includes('--smoke-with-model')) {
       assert(
         await js(`window.dAIly.modelStatus().then(status => status.ready)`),
         'Local Gemma is ready in the packaged app',
       )
       const workflow = await js<WorkflowResult>(
-        `window.dAIly.checkInAndPlan(${JSON.stringify({ ...checkIn, until: '23:59', text: 'Propose an achievable next block from my concrete tasks, unless you need one relevant question.' })})`,
+        `window.dAIly.checkInAndPlan(${JSON.stringify({ ...checkIn, until: config.profile.bedtime, text: 'Propose an achievable next block from my concrete tasks, unless you need one relevant question.' })})`,
       )
       const response = workflow.result
       assert(response, 'Check-in workflow returns a model decision')

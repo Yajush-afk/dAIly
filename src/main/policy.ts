@@ -26,40 +26,42 @@ export function decisionConstraints(
       available,
       low ? planningLimits.lowEnergyMinutes : planningLimits.maximumBlockMinutes,
     ),
-    repeatedObstacles: state.tasks.flatMap((t) => {
-      const interrupted = state.sessions.filter(
-        (s) =>
-          s.taskId === t.id &&
-          s.outcome === 'interrupted' &&
-          Date.parse(s.startedAt) >= now - 7 * 86400000,
-      )
-      const deferred = state.plans.filter(
-        (p) =>
-          Date.parse(p.createdAt) >= now - 7 * 86400000 &&
-          p.deferred.some((d) => d.taskId === t.id),
-      )
-      const deferredDays = new Set(
-        deferred.map((p) =>
-          new Intl.DateTimeFormat('en-CA', { timeZone: state.profile.timezone }).format(
-            new Date(p.createdAt),
+    repeatedObstacles: state.tasks
+      .filter((t) => t.status === 'todo')
+      .flatMap((t) => {
+        const interrupted = state.sessions.filter(
+          (s) =>
+            s.taskId === t.id &&
+            s.outcome === 'interrupted' &&
+            Date.parse(s.startedAt) >= now - 7 * 86400000,
+        )
+        const deferred = state.plans.filter(
+          (p) =>
+            Date.parse(p.createdAt) >= now - 7 * 86400000 &&
+            p.deferred.some((d) => d.taskId === t.id),
+        )
+        const deferredDays = new Set(
+          deferred.map((p) =>
+            new Intl.DateTimeFormat('en-CA', { timeZone: state.profile.timezone }).format(
+              new Date(p.createdAt),
+            ),
           ),
-        ),
-      ).size
-      return interrupted.length >= 3 || deferredDays >= 3
-        ? [
-            {
-              taskId: t.id,
-              interruptions: interrupted.length,
-              deferredDays,
-              reason: (
-                interrupted.at(-1)?.interruption ||
-                deferred.at(-1)?.deferred.find((d) => d.taskId === t.id)?.reason ||
-                ''
-              ).slice(0, 120),
-            },
-          ]
-        : []
-    }),
+        ).size
+        return interrupted.length >= 3 || deferredDays >= 3
+          ? [
+              {
+                taskId: t.id,
+                interruptions: interrupted.length,
+                deferredDays,
+                reason: (
+                  interrupted.at(-1)?.interruption ||
+                  deferred.at(-1)?.deferred.find((d) => d.taskId === t.id)?.reason ||
+                  ''
+                ).slice(0, 120),
+              },
+            ]
+          : []
+      }),
   }
 }
 
