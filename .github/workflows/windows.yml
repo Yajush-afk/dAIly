@@ -7,6 +7,17 @@ on:
 permissions:
   contents: read
 jobs:
+  linux-install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: node scripts/check-electron-install.mjs
   desktop:
     runs-on: windows-latest
     timeout-minutes: 20
@@ -17,6 +28,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: node scripts/check-electron-install.mjs
       - name: Prepare native SQLite for Node checks
         run: npm rebuild better-sqlite3
       - run: npm run check
