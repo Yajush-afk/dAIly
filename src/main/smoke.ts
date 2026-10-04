@@ -1,4 +1,5 @@
 import { app, BrowserWindow } from 'electron'
+import { DateTime } from 'luxon'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -145,15 +146,19 @@ export async function smoke(window: BrowserWindow, store: Store, directory: stri
         `${page} navigation renders`,
       )
       if (page === 'Progress') {
-        const reported = store.history({ kind: 'sessions', limit: 20 }).totals.sessions
+        const today = DateTime.now().setZone(config.profile.timezone).startOf('day')
+        const reported = store.history({
+          kind: 'sessions',
+          limit: 20,
+          from: today.minus({ days: 6 }).toUTC().toISO()!,
+          until: today.plus({ days: 1 }).toUTC().toISO()!,
+        }).totals.sessions
+        const renderedCount = `Array.from(document.querySelectorAll('.progress-numbers > div')).find(row => row.querySelector('dt')?.textContent === 'Sessions reported')?.querySelector('dd')?.textContent === '${reported}'`
         for (let attempt = 0; attempt < 40; attempt++) {
-          if (await js(`document.body.textContent.includes('${reported} reported sessions')`)) break
+          if (await js(renderedCount)) break
           await new Promise((resolve) => setTimeout(resolve, 50))
         }
-        assert(
-          await js(`document.body.textContent.includes('${reported} reported sessions')`),
-          'Paginated history loads through the desktop bridge',
-        )
+        assert(await js(renderedCount), 'Paginated history loads through the desktop bridge')
       }
       for (const [width, height] of [
         [1280, 800],
