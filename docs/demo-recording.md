@@ -45,3 +45,23 @@ npm run demo -- --import ./daily-demo-transfer.db --reset
 ```
 
 Import replaces only the destination's isolated demo take. Normal application data is untouched. Existing dates are preserved when transferring; use `npm run demo:reset` for freshly dated sample history instead. The transfer includes conversations and profile information, so share it only with the intended recipient. Database files remain ignored by Git.
+
+## Prepare just the demo database
+
+These two scripts install Node 24 if needed and the application dependencies, then create the demo database without opening Electron or downloading/starting Ollama. Ubuntu also prepares the system dependencies and sandbox for a later app launch. Native SQLite is restored to the Electron runtime after seeding.
+
+Windows, from PowerShell:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-demo-db-windows.ps1
+```
+
+Ubuntu:
+
+```bash
+bash ./setup-demo-db-ubuntu.sh
+```
+
+An existing demo take is kept. To replace it with freshly dated sample data, quit dAIly from its tray and add `-Reset` on Windows or `--reset` on Ubuntu. This changes only `artifacts/demo-recording/user-data/daily.db`; personal data is untouched.
+
+Open the prepared demo afterward with the usual `start-windows.ps1` or `start-ubuntu.sh` launcher. They download local AI if needed and reuse this database.
