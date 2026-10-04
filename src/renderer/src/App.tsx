@@ -1,18 +1,21 @@
 import { useEffect, useState } from 'react'
 import { defaultProfile, type Config, type Snapshot } from '../../shared/state'
-import { configFrom, GoalsEditor, ProfileEditor } from './Editors'
+import { configFrom, ProfileEditor } from './Editors'
 import { ModelSetup } from './ModelSetup'
-import { Today } from './Today'
 import { History } from './History'
+import { AppShell, useMedia } from './AppShell'
+import { WorkspaceProvider, useConversationController, friendlyError } from './WorkspaceContext'
+import { ConversationPanel } from './ConversationPanel'
+import { TodayDashboard } from './TodayDashboard'
+import { GoalsPage } from './GoalsPage'
+import { Skeleton } from './components/ui/skeleton'
+import { Button } from './components/ui/button'
 
-export type Page = 'Today' | 'Goals' | 'History' | 'Settings'
+export type Page = 'Today' | 'Goals' | 'Progress' | 'Settings'
 export type Theme = 'system' | 'light' | 'dark'
-
 export default function App(): React.JSX.Element {
-  const [page, setPage] = useState<Page>('Today')
-  const [theme, setTheme] = useState<Theme>(
-    (localStorage.getItem('daily-theme') as Theme) || 'system',
-  )
+  const [page, setPage] = useState<Page>('Today'),
+    [selectedGoal, setSelectedGoal] = useState<string>()
   const [state, setState] = useState<Snapshot>({
     revision: 0,
     profile: defaultProfile,
@@ -24,11 +27,12 @@ export default function App(): React.JSX.Element {
     sessions: [],
     messages: [],
   })
-  const [busy, setBusy] = useState(false)
-  const [goalsDirty, setGoalsDirty] = useState(false)
-  const [error, setError] = useState('')
-  const [exportNotice, setExportNotice] = useState('')
-  const [loading, setLoading] = useState(() => !!window.dAIly)
+  const [busy, setBusy] = useState(false),
+    [error, setError] = useState(''),
+    [exportNotice, setExportNotice] = useState(''),
+    [loading, setLoading] = useState(() => !!window.dAIly)
+  const workspace = useConversationController(state),
+    darkSystem = useMedia('(prefers-color-scheme: dark)')
   useEffect(() => {
     const api = window.dAIly
     if (!api) return
@@ -36,26 +40,29 @@ export default function App(): React.JSX.Element {
     void api
       .getState()
       .then((value) => {
-        if (active) {
-          setState(value)
-          setTheme(value.profile.theme)
-        }
+        if (active) setState(value)
       })
       .catch((reason) => {
-        if (active) setError(String(reason))
+        if (active) setError(friendlyError(reason))
       })
       .finally(() => {
         if (active) setLoading(false)
       })
-    const unsubscribe = api.onState((value) => {
-      setState((previous) => ({ ...previous, ...value }))
-      if (value.profile) setTheme(value.profile.theme)
-    })
+    const unsubscribe = api.onState((value) => setState((previous) => ({ ...previous, ...value })))
     return () => {
       active = false
       unsubscribe()
     }
   }, [])
+  useEffect(() => {
+    const theme = state.profile.theme
+    document.documentElement.dataset.theme = theme
+    document.documentElement.classList.toggle(
+      'dark',
+      theme === 'dark' || (theme === 'system' && darkSystem),
+    )
+    localStorage.setItem('daily-theme', theme)
+  }, [state.profile.theme, darkSystem])
   async function save(config: Config): Promise<boolean> {
     if (!window.dAIly) {
       setError(
@@ -69,125 +76,45 @@ export default function App(): React.JSX.Element {
       setState(await window.dAIly.saveConfig(config))
       return true
     } catch (reason) {
-      setError(String(reason))
+      setError(friendlyError(reason))
       return false
     } finally {
       setBusy(false)
     }
   }
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme
-    localStorage.setItem('daily-theme', theme)
-  }, [theme])
+  const selectGoal = (id?: string) => {
+    setSelectedGoal(id)
+    setPage('Goals')
+  }
   return (
-    <div className="app-shell">
-      <aside className="sidebar" aria-label="Main navigation">
-        <a className="brand" href="#today" onClick={() => setPage('Today')}>
-          d<span>AI</span>ly
-        </a>
-        <nav>
-          {(['Today', 'Goals', 'History', 'Settings'] as Page[]).map((item) => (
-            <button
-              key={item}
-              aria-current={page === item ? 'page' : undefined}
-              onClick={() => setPage(item)}
-            >
-              {item}
-            </button>
-          ))}
-        </nav>
-        <p className="sidebar-foot">
-          On your laptop.
-          <br />
-          At your pace.
-        </p>
-      </aside>
-      <main className="workspace">
-        <div className="page-content">
-          <header className="page-header">
-            <h1>{page}</h1>
-            <span className="muted">
-              {new Date().toLocaleDateString(undefined, {
-                weekday: 'long',
-                month: 'short',
-                day: 'numeric',
-              })}
-            </span>
-          </header>
-          {error && (
-            <p role="alert" className="error">
-              {error}
-            </p>
-          )}
-          {goalsDirty && page !== 'Goals' && (
-            <p role="status" className="notice">
-              Your goal edits are not saved yet. Open Goals and save them before planning.
-              <button type="button" onClick={() => setPage('Goals')}>
-                Return to Goals
-              </button>
-            </p>
-          )}
-          {loading && (
-            <p role="status" className="notice">
-              Loading your saved day...
-            </p>
-          )}
-          {!window.dAIly && (
-            <p className="notice">
-              Browser preview. Open dAIly on your desktop to save records and use local AI.
-            </p>
-          )}
-          {page === 'Today' && !loading && !state.profile.onboardingComplete && (
-            <ProfileEditor
-              key={JSON.stringify([state.profile, state.timetable])}
-              state={state}
-              save={save}
-              busy={busy}
-              importSchedule={() => window.dAIly?.importSchedule() || Promise.resolve(undefined)}
-            />
-          )}
-          {page === 'Today' && state.profile.onboardingComplete && (
-            <Today state={state} onOpenGoals={() => setPage('Goals')} goalsDirty={goalsDirty} />
-          )}
-          {!loading && (
-            <div hidden={page !== 'Goals'} className="page-content">
-              <GoalsEditor
-                state={state}
-                save={save}
-                busy={busy}
-                navigate={() => setPage('Today')}
-                onDirty={setGoalsDirty}
-              />
-            </div>
-          )}
-          {page === 'History' && <History state={state} />}
-          {page === 'Settings' && (
-            <>
-              <section>
-                <h2>Appearance</h2>
-                <p className="muted">Choose a comfortable light or dark workspace.</p>
-                <label className="setting-row">
-                  Theme
-                  <select
-                    value={theme}
-                    onChange={(event) => {
-                      const next = event.target.value as Theme
-                      setTheme(next)
-                      if (window.dAIly)
-                        void save({
-                          ...configFrom(state),
-                          profile: { ...state.profile, theme: next },
-                        })
-                    }}
-                  >
-                    <option value="system">Follow system</option>
-                    <option value="light">Light</option>
-                    <option value="dark">Dark</option>
-                  </select>
-                </label>
-              </section>
-              <ModelSetup />
-              <section>
+    <WorkspaceProvider value={workspace}>
+      <AppShell
+        page={page}
+        navigate={setPage}
+        conversation={<ConversationPanel onSaved={setState} settings={() => setPage('Settings')} />}
+      >
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
+        {loading ? (
+          <div className="loading-workspace" role="status" aria-label="Loading your saved day">
+            <Skeleton className="h-8 w-64" />
+            <Skeleton className="h-40 w-full" />
+            <Skeleton className="h-24 w-full" />
+          </div>
+        ) : (
+          <>
+            {!window.dAIly && (
+              <p className="preview-note">
+                Browser preview. Open the desktop app to save records and use local AI.
+              </p>
+            )}
+            {page === 'Today' &&
+              (state.profile.onboardingComplete ? (
+                <TodayDashboard state={state} selectGoal={selectGoal} />
+              ) : (
                 <ProfileEditor
                   key={JSON.stringify([state.profile, state.timetable])}
                   state={state}
@@ -197,35 +124,72 @@ export default function App(): React.JSX.Element {
                     window.dAIly?.importSchedule() || Promise.resolve(undefined)
                   }
                 />
-              </section>
-              <section>
-                <h2>Your data</h2>
-                <p className="notice">
-                  Planning records stay on this laptop. Export includes your profile, tasks, plans,
-                  session outcomes, and conversation.
-                </p>
-                <button
-                  onClick={() => {
-                    void window.dAIly
-                      ?.exportData()
-                      .then((result) => {
-                        if (!result.cancelled) setExportNotice(`Saved to ${result.path}`)
-                      })
-                      .catch((reason) => setError(String(reason)))
-                  }}
-                >
-                  Export local records
-                </button>
-                {exportNotice && (
-                  <p role="status" className="notice">
-                    {exportNotice}
+              ))}
+            <div hidden={page !== 'Goals'}>
+              <GoalsPage
+                state={state}
+                save={save}
+                selectedId={selectedGoal}
+                select={setSelectedGoal}
+              />
+            </div>
+            {page === 'Progress' && <History state={state} />}
+            {page === 'Settings' && (
+              <div className="legacy-settings">
+                <section>
+                  <h2>Appearance</h2>
+                  <p className="muted">Choose a comfortable light or dark workspace.</p>
+                  <label>
+                    Theme
+                    <select
+                      value={state.profile.theme}
+                      onChange={(event) => {
+                        const profile = { ...state.profile, theme: event.target.value as Theme }
+                        if (window.dAIly) void save({ ...configFrom(state), profile })
+                        else setState((previous) => ({ ...previous, profile }))
+                      }}
+                    >
+                      <option value="system">Follow system</option>
+                      <option value="light">Light</option>
+                      <option value="dark">Dark</option>
+                    </select>
+                  </label>
+                </section>
+                <ModelSetup />
+                <ProfileEditor
+                  key={JSON.stringify([state.profile, state.timetable])}
+                  state={state}
+                  save={save}
+                  busy={busy}
+                  importSchedule={() =>
+                    window.dAIly?.importSchedule() || Promise.resolve(undefined)
+                  }
+                />
+                <section>
+                  <h2>Your data</h2>
+                  <p className="muted">
+                    Export your planning records, session outcomes, and conversation.
                   </p>
-                )}
-              </section>
-            </>
-          )}
-        </div>
-      </main>
-    </div>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      void window.dAIly
+                        ?.exportData()
+                        .then((result) => {
+                          if (!result.cancelled) setExportNotice(`Saved to ${result.path}`)
+                        })
+                        .catch((reason) => setError(friendlyError(reason)))
+                    }}
+                  >
+                    Export local records
+                  </Button>
+                  {exportNotice && <p role="status">{exportNotice}</p>}
+                </section>
+              </div>
+            )}
+          </>
+        )}
+      </AppShell>
+    </WorkspaceProvider>
   )
 }
