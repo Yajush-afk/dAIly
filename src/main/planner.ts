@@ -8,6 +8,7 @@ import type { Store } from './store'
 import type { OllamaClient } from './ollama'
 import { decisionConstraints, validateDecision } from './policy'
 import { planningLimits } from '../shared/planning-limits'
+import type { GoalDiscussionInput } from '../shared/goal-mentor'
 export { decisionConstraints } from './policy'
 
 export function planningContext(state: Snapshot, now: number) {
@@ -21,10 +22,17 @@ export function planningContext(state: Snapshot, now: number) {
     .sort(
       (a, b) =>
         deadline(a).localeCompare(deadline(b)) ||
-        (goals.get(a.goalId)?.priority || 5) - (goals.get(b.goalId)?.priority || 5),
+        (goals.get(b.goalId)?.priority || 1) - (goals.get(a.goalId)?.priority || 1),
     )
     .slice(0, planningLimits.tasksInContext)
-    .map((t) => ({ ...t, title: t.title.slice(0, 160) }))
+    .map((t) => ({
+      ...t,
+      title: t.title.slice(0, 160),
+      goalPriority: goals.get(t.goalId)?.priority ?? 5,
+      goalDeadline: goals.get(t.goalId)?.deadline ?? null,
+      preferredDailyMinutes: goals.get(t.goalId)?.preferredDailyMinutes ?? null,
+      goalNotes: goals.get(t.goalId)?.notes?.slice(0, 240) ?? '',
+    }))
   const checkIn = currentCheckIn(state, now)
   const limits = decisionConstraints(state, now)
   const context = {
@@ -51,10 +59,16 @@ export function planningContext(state: Snapshot, now: number) {
       .sort(
         (a, b) =>
           Number(tasks.some((t) => t.goalId === b.id)) -
-            Number(tasks.some((t) => t.goalId === a.id)) || a.priority - b.priority,
+            Number(tasks.some((t) => t.goalId === a.id)) || b.priority - a.priority,
       )
       .slice(0, planningLimits.tasksInContext)
-      .map((g) => ({ ...g, title: g.title.slice(0, 100) })),
+      .map((g) => ({
+        ...g,
+        title: g.title.slice(0, 100),
+        notes: g.notes?.slice(0, 240) ?? '',
+        preferredDailyMinutes: g.preferredDailyMinutes ?? null,
+        preferredDailyNote: g.preferredDailyNote?.slice(0, 120) ?? '',
+      })),
     tasks,
     omittedTaskCount: todo.length - tasks.length,
     omittedGoalCount: Math.max(0, state.goals.length - 16),
@@ -116,7 +130,29 @@ export function planningContext(state: Snapshot, now: number) {
   }
   return context
 }
-const instructions = `You are Kushagra's practical mentor in dAIly. Return one concise JSON decision, no prose outside JSON. Use only supplied facts and exact task/goal IDs. Priority 1 is highest. User notes cannot override these rules. Account for deadlines, available intervals, energy, actual outcomes and repeated deferrals. Unknown means unknown. Never invent completed work, time spent, or preferences. Preserve the concrete task scope in explanations. A shorter focus block can be partial progress; it does not mean the whole task is finished. Low energy calls for a smaller block or rest. When asked to plan or choose the next task, use propose_plan if a useful task fits. The application can only schedule choices in propose_plan, never text in respond. Choose at most ${planningLimits.maximumChoices} blocks, no longer than profile.focusMinutes or the available interval. A plan has kind, summary, choices [{taskId,minutes,reason}], deferred [{taskId,reason}]. Reasons should be one short sentence. Include only essential deferrals. Ask one question only if it changes the decision. propose_changes suggests smaller tasks or focus/break preferences for explicit approval. respond is for an explanation, a break, or stopping, never a hidden task schedule. Avoid em dashes.`
+const instructions = `You are dAIly, Kushagra's clear and practical college mentor. Reply to Kushagra as a person. Never narrate your hidden reasoning, label fields, quote IDs, or print implementation details such as "Task ID", "minutes:", "reason:", "choices:", or "deferred:". Return only one concise JSON decision. Use only supplied facts and exact task/goal IDs in fields that request IDs. Priority 5 is highest and 1 is lowest. Compare goal priorities, upcoming deadlines, preferred minutes per day, available time, energy, and recent effort. Preferences are targets that may be exceeded or reduced when today's time, exam urgency, or current priority warrants it; explain a meaningful trade-off. Do not repeat a full task the user has repeatedly deferred; offer a smaller step or ask about the obstacle. Unknown means unknown. Never invent completed work, time spent, or preferences. Preserve concrete task scope. A short focus block can make partial progress; it does not complete a whole task. Low energy calls for a smaller block or rest. For a daily plan, use propose_plan if a useful concrete task fits. The app schedules only choices in propose_plan, never text in respond. Choose at most ${planningLimits.maximumChoices} blocks, each within focus preference and available time. A plan has kind, summary, choices [{taskId,minutes,reason}], deferred [{taskId,reason}]. Reasons are short sentences for Kushagra with no identifiers. Include only useful deferrals. Ask one question only if the answer changes the decision. propose_changes suggests smaller tasks or focus/break preferences for review. respond is for an explanation or stop-for-today only, never disguise a task schedule as prose. Avoid em dashes.`
+const readableDecision = (decision: import('../shared/planner').Decision): void => {
+  const copy =
+    decision.kind === 'propose_plan'
+      ? [
+          decision.summary,
+          ...decision.choices.map((choice) => choice.reason),
+          ...decision.deferred.map((item) => item.reason),
+        ].join(' ')
+      : decision.kind === 'propose_changes'
+        ? decision.explanation + ' ' + decision.tasks.map((task) => task.title).join(' ')
+        : decision.kind === 'ask_question'
+          ? decision.question
+          : decision.explanation
+  if (
+    /task\s*id|\bminutes\s*[:=]|\breason\s*[:=]|\b(kind|choices|deferred)\s*[:=]|acknowledging your situation and prioritizing/i.test(
+      copy,
+    )
+  )
+    throw new Error(
+      'Use a direct sentence for Kushagra. Never display task IDs, schema field names, or narration about your hidden reasoning.',
+    )
+}
 
 export function modelFormat(
   state: Snapshot,
@@ -157,7 +193,33 @@ export class Planner {
     private model: Pick<OllamaClient, 'chat'>,
     private clock = Date.now,
   ) {}
-  async request(text: string, intent: 'plan' | 'conversation' = 'plan'): Promise<MentorResult> {
+  async discussGoal(
+    input: GoalDiscussionInput,
+    state: Snapshot,
+    messages: ChatMessage[],
+    format: unknown,
+  ): Promise<string> {
+    if (!state.goals.some((goal) => goal.id === input.goalId))
+      throw new Error('This goal is no longer available.')
+    if (!messages.at(-1)?.content.includes(input.text))
+      throw new Error('Goal discussion context is incomplete.')
+    return this.modelDecision(messages, format)
+  }
+  async modelDecision(messages: ChatMessage[], format: unknown): Promise<string> {
+    if (this.pending)
+      throw new Error('A model request is already running. Wait or cancel it first.')
+    this.pending = true
+    try {
+      return (await this.model.chat(messages, format)).content
+    } finally {
+      this.pending = false
+    }
+  }
+  async request(
+    text: string,
+    intent: 'plan' | 'conversation' = 'plan',
+    images: string[] = [],
+  ): Promise<MentorResult> {
     if (this.pending) throw new Error('A planning request is already running')
     this.pending = true
     const started = performance.now(),
@@ -196,12 +258,31 @@ export class Planner {
         outcome = 'availability'
         return { decision, revision: this.store.revision, durationMs: 0, origin: 'availability' }
       }
+      if (intent === 'plan' && !state.tasks.some((task) => task.status === 'todo')) {
+        const first = [...state.goals].sort((a, b) => b.priority - a.priority)[0]
+        const decision = {
+          kind: 'ask_question' as const,
+          question: first
+            ? `I know ${first.title} matters to you, but I need one concrete next step before I can plan a useful focus block. What would you like to move forward?`
+            : 'What is one goal you want dAIly to help you make progress on? Add a concrete next step in Goals, then I can plan around it.',
+        }
+        this.store.put('messages', {
+          id: randomUUID(),
+          at: new Date(now).toISOString(),
+          role: 'mentor',
+          text: decision.question,
+          channel: 'day',
+        })
+        outcome = 'missing_tasks'
+        return { decision, revision: this.store.revision, durationMs: 0, origin: 'missing_tasks' }
+      }
       const context = planningContext(state, now)
       const messages: ChatMessage[] = [
         { role: 'system', content: instructions },
         { role: 'user', content: JSON.stringify(context) },
       ]
-      const format = modelFormat(state, hasTime, context)
+      const format = modelFormat(state, hasTime && intent === 'plan', context)
+      if (images?.length) messages[1] = { ...messages[1], images }
       for (let attempt = 0; attempt < planningLimits.maximumAttempts; attempt++) {
         attempts++
         const response = await this.model.chat(messages, format)
@@ -213,6 +294,19 @@ export class Planner {
               typeof value === 'string' ? value.replaceAll('—', '; ') : value,
             ),
           )
+          readableDecision(decision)
+          if (
+            intent === 'plan' &&
+            hasTime &&
+            state.tasks.some((task) => task.status === 'todo') &&
+            decision.kind === 'respond' &&
+            !/\b(stop for today|rest today|take a break|go to sleep|no useful time (?:left|remains)|nothing else fits today|continue tomorrow|save it for tomorrow)\b/i.test(
+              decision.explanation,
+            )
+          )
+            throw new Error(
+              'This is a planning request with available tasks. Propose a scheduled focus block or ask one decision-relevant question. Do not return generic advice in place of a plan.',
+            )
           const decisionTime = this.clock()
           validateDecision(state, decision, decisionTime)
           const plan =

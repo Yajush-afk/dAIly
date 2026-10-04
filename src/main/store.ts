@@ -29,7 +29,7 @@ export class Store {
     this.db = new Database(path)
     this.db.pragma('journal_mode = WAL')
     const version = this.db.pragma('user_version', { simple: true }) as number
-    if (version > 3) {
+    if (version > 4) {
       this.db.close()
       throw new Error('This database belongs to a newer dAIly version')
     }
@@ -58,6 +58,13 @@ export class Store {
           this.db
             .prepare('INSERT OR IGNORE INTO metadata VALUES (?, ?)')
             .run('planning_revision', '0')
+        }
+        if (version < 4) {
+          this.db.exec(
+            `UPDATE records SET value = json_set(value, '$.priority', 6 - CAST(json_extract(value, '$.priority') AS INTEGER)) WHERE kind = 'goals';
+            ${version >= 3 ? "UPDATE metadata SET value = CAST(value AS INTEGER) + 1 WHERE key = 'planning_revision';" : ''}
+            PRAGMA user_version = 4;`,
+          )
         }
         if (!this.db.prepare('SELECT value FROM metadata WHERE key = ?').get('profile'))
           this.db
@@ -146,6 +153,20 @@ export class Store {
   private latest<K extends RecordKind>(kind: K, limit: number): Snapshot[K] {
     return this.query(kind, 'ORDER BY rowid DESC LIMIT ?', [limit]).reverse() as Snapshot[K]
   }
+  goalConversation(goalId: string, limit = 8): Snapshot['messages'] {
+    return this.query(
+      'messages',
+      "AND json_extract(value, '$.channel') = 'goal' AND json_extract(value, '$.goalId') = ? ORDER BY rowid DESC LIMIT ?",
+      [goalId, limit],
+    ).reverse()
+  }
+  dailyConversation(limit = 4): Snapshot['messages'] {
+    return this.query(
+      'messages',
+      "AND (json_extract(value, '$.channel') IS NULL OR json_extract(value, '$.channel') = 'day') ORDER BY rowid DESC LIMIT ?",
+      [limit],
+    ).reverse()
+  }
   runtimeState(now = Date.now()): Snapshot {
     return {
       profile: this.profile(),
@@ -166,7 +187,7 @@ export class Store {
       ...this.config(),
       plans: this.recent('plans', now - 7 * 86400000),
       sessions: this.recent('sessions', now - 7 * 86400000),
-      messages: this.latest('messages', 4),
+      messages: this.dailyConversation(),
     }
   }
   view(now = Date.now()): Snapshot {
@@ -219,12 +240,20 @@ export class Store {
         "SELECT COUNT(*) AS sessions, COALESCE(SUM(json_extract(value, '$.elapsedSeconds')), 0) AS seconds FROM records WHERE kind = 'sessions' AND json_extract(value, '$.state') = 'finished'",
       )
       .get() as { sessions: number; seconds: number }
+    const byGoal =
+      query.kind === 'sessions'
+        ? (this.db
+            .prepare(
+              "SELECT json_extract(task.value,'$.goalId') AS goalId, COUNT(*) AS sessions, COALESCE(SUM(json_extract(session.value,'$.elapsedSeconds')),0) AS seconds FROM records session LEFT JOIN records task ON task.kind='tasks' AND task.id=json_extract(session.value,'$.taskId') WHERE session.kind='sessions' AND json_extract(session.value,'$.state')='finished' AND json_extract(task.value,'$.goalId') IS NOT NULL GROUP BY json_extract(task.value,'$.goalId') ORDER BY seconds DESC",
+            )
+            .all() as { goalId: string; sessions: number; seconds: number }[])
+        : []
     return {
       kind: query.kind,
       sessions: query.kind === 'sessions' ? (values as Snapshot['sessions']) : [],
       plans: query.kind === 'plans' ? (values as Snapshot['plans']) : [],
       next: rows.length > query.limit ? page.at(-1)!.cursor : null,
-      totals,
+      totals: { ...totals, byGoal },
     }
   }
   put<K extends RecordKind>(kind: K, value: Snapshot[K][number]): void {

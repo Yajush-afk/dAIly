@@ -14,4 +14,5 @@ export interface DownloadProgress {
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
+  images?: string[]
 }
