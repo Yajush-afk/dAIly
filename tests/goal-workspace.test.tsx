@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import { randomUUID } from 'node:crypto'
+import { useState } from 'react'
+import { MinutesInput } from '../src/renderer/src/Inputs'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -145,6 +147,103 @@ describe('goal and preference interactions', () => {
       text: 'Recommend an order.\nThen draft it.',
     })
     expect(message).toHaveValue('')
+  })
+  it('applies a reviewed roadmap to the goal sheet without a fake user reply', async () => {
+    const initial = fixture()
+    const decisionId = randomUUID()
+    const decision = {
+      kind: 'roadmap',
+      explanation: 'Polish recursion first.',
+      priority: 5,
+      preferredDailyMinutes: 180,
+      deadline: '2027-03-01',
+      tasks: [
+        {
+          id: initial.tasks[0].id,
+          title: 'Recursion',
+          deadline: '2026-10-25',
+          estimateMinutes: 600,
+        },
+      ],
+    }
+    initial.messages = [
+      {
+        id: decisionId,
+        at: new Date().toISOString(),
+        role: 'mentor',
+        channel: 'goal',
+        goalId: initial.goals[0].id,
+        text: decision.explanation,
+        details: { type: 'goal-decision', payload: JSON.stringify({ decision, inputRevision: 0 }) },
+      },
+    ]
+    const updated: Snapshot = {
+      ...initial,
+      goals: [
+        { ...initial.goals[0], priority: 5, preferredDailyMinutes: 180, deadline: '2027-03-01' },
+        initial.goals[1],
+      ],
+      tasks: [{ ...initial.tasks[0], deadline: '2026-10-25', estimateMinutes: 600 }],
+      messages: [
+        ...initial.messages,
+        {
+          id: randomUUID(),
+          at: new Date().toISOString(),
+          role: 'user',
+          channel: 'goal',
+          goalId: initial.goals[0].id,
+          text: 'Saved the roadmap for this goal.',
+          details: { type: 'changes-accept', payload: JSON.stringify({ decisionId }) },
+        },
+      ],
+    }
+    const approveRoadmap = vi.fn()
+    function Workspace() {
+      const [state, setState] = useState(initial)
+      approveRoadmap.mockImplementation(async () => {
+        setState(updated)
+        return updated
+      })
+      return (
+        <GoalsEditor
+          state={state}
+          save={async () => true}
+          busy={false}
+          navigate={() => {}}
+          onDirty={() => {}}
+        />
+      )
+    }
+    Object.defineProperty(window, 'dAIly', { configurable: true, value: { approveRoadmap } })
+    render(<Workspace />)
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Apply roadmap to goal' }))
+    expect(approveRoadmap).toHaveBeenCalledTimes(1)
+    expect(screen.getByLabelText('Preferred time per day, minutes')).toHaveValue(180)
+    expect(screen.getByLabelText('Goal deadline')).toHaveValue('2027-03-01')
+    expect(screen.getByLabelText('Estimated total minutes')).toHaveValue(600)
+    expect(screen.getByLabelText('Target date')).toHaveValue('2026-10-25')
+    expect(screen.getByRole('status')).toHaveTextContent('Roadmap applied')
+    expect(screen.queryByText('Saved the roadmap for this goal.')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Next goal' }))
+    await user.click(screen.getByRole('button', { name: 'Previous goal' }))
+    expect(screen.queryByRole('button', { name: 'Apply roadmap to goal' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Preferred time per day, minutes')).toHaveValue(180)
+  })
+  it('refreshes saved minutes without replacing an active edit', () => {
+    const change = vi.fn()
+    const { rerender } = render(<MinutesInput value={45} onChange={change} max={720} />)
+    const input = screen.getByRole('spinbutton')
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: '120' } })
+    rerender(<MinutesInput value={180} onChange={change} max={720} />)
+    expect(input).toHaveValue(120)
+    fireEvent.blur(input)
+    expect(change).toHaveBeenCalledWith(120)
+    rerender(<MinutesInput value={120} onChange={change} max={720} />)
+    expect(input).toHaveValue(120)
+    rerender(<MinutesInput value={240} onChange={change} max={720} />)
+    expect(input).toHaveValue(240)
   })
   it('can save removal of the last goal after the editor becomes empty', async () => {
     const state = fixture(),
