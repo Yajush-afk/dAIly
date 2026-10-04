@@ -33,6 +33,14 @@ describe('complete workflow safeguards', () => {
     expect(p.blocks.every(b => availableIntervals(s, now).some(i => Date.parse(b.start) >= i.start && Date.parse(b.end) <= i.end))).toBe(true)
     expect(Date.parse(p.blocks.at(-1)!.start)).toBe(now + 50 * 60000); store.close()
   })
+  it('counts repeated deferrals by distinct day instead of revisions', () => {
+    const { store, now } = fixture(), s = store.snapshot()
+    const p = { ...schedule(s, proposal(s), now), blocks: [], deferred: [{ taskId: s.tasks[0].id, reason: 'Other work came first' }] }
+    s.plans = [0, 0, 0].map(day => ({ ...p, id: randomUUID(), createdAt: new Date(now - day * 86400000).toISOString() }))
+    expect(decisionConstraints(s, now).repeatedObstacles).toEqual([])
+    s.plans = [1, 2, 3].map(day => ({ ...p, id: randomUUID(), createdAt: new Date(now - day * 86400000).toISOString() }))
+    expect(decisionConstraints(s, now).repeatedObstacles[0].deferredDays).toBe(3); store.close()
+  })
   it('preserves the accepted plan when both model attempts are invalid', async () => {
     const { store, now } = fixture()
     const prior = { ...schedule(store.snapshot(), proposal(store.snapshot()), now), status: 'accepted' as const }

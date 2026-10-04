@@ -16,8 +16,8 @@
     "test:desktop": "npm run build && node scripts/smoke.mjs",
     "evaluate:gemma": "tsx scripts/evaluate-gemma.mts",
     "check": "npm run typecheck && npm run lint && npm test && npm run build",
-    "package": "npm run build && electron-builder",
-    "package:win": "npm run build && electron-builder --win --x64",
+    "package": "npm run build && electron-builder --publish never",
+    "package:win": "npm run build && electron-builder --win --x64 --publish never",
     "postinstall": "electron-builder install-app-deps"
   },
   "build": {

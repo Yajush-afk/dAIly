@@ -104,5 +104,5 @@ app.whenReady().then(() => {
   }, 1000)
   app.once('before-quit', () => { quitting = true; clearInterval(timer); sessions.suspend(false); ollama.cancel() })
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
-})
+}).catch(error => { dialog.showErrorBox('dAIly could not open', `Your records have not been deleted. ${String(error)}`); app.quit() })
 app.on('will-quit', () => store?.close())
