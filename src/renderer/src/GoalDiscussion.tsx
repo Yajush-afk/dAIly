@@ -24,6 +24,7 @@ export function GoalDiscussion({
   const messages = state.messages.filter(
     (message) => message.channel === 'goal' && message.goalId === goal.id,
   )
+  const conversation = messages.filter((message) => message.details?.type !== 'changes-accept')
   const lastPending = [...messages]
     .reverse()
     .find((message) => message.role === 'mentor' && message.details?.type === 'goal-decision')
@@ -60,6 +61,7 @@ export function GoalDiscussion({
   const [text, setText] = useState('')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
+  const [saved, setSaved] = useState(false)
   const [proposal, setProposal] = useState<GoalDiscussionResult | undefined>(restored)
   const [tasksDraft, setTasksDraft] = useState<
     { id: string | null; title: string; deadline: string | null; estimateMinutes: number | null }[]
@@ -77,6 +79,7 @@ export function GoalDiscussion({
     if (!text.trim() || !window.dAIly || pending) return
     setPending(true)
     setError('')
+    setSaved(false)
     try {
       if (!(await save())) return
       const result = await window.dAIly.discussGoal({ goalId: goal.id, text: text.trim() })
@@ -93,6 +96,7 @@ export function GoalDiscussion({
     if (!proposal || proposal.decision.kind !== 'roadmap' || !window.dAIly) return
     setPending(true)
     setError('')
+    setSaved(false)
     try {
       const updated = await window.dAIly.approveRoadmap({
         decisionId: proposal.decisionId,
@@ -103,6 +107,7 @@ export function GoalDiscussion({
       })
       onSaved(updated)
       setProposal(undefined)
+      setSaved(true)
     } catch (reason) {
       setError(readableError(reason))
     } finally {
@@ -118,13 +123,13 @@ export function GoalDiscussion({
         roadmap before saving it.
       </p>
       <div className="conversation goal-conversation" aria-live="polite">
-        {messages.slice(-8).map((message) => (
+        {conversation.slice(-8).map((message) => (
           <article key={message.id}>
             <strong>{message.role === 'user' ? state.profile.name : 'dAIly'}</strong>
             <p>{message.text}</p>
           </article>
         ))}
-        {!messages.length && (
+        {!conversation.length && (
           <p className="muted">Start with what you want to achieve and what you already know.</p>
         )}
       </div>
@@ -269,10 +274,11 @@ export function GoalDiscussion({
             }
             onClick={() => void approve()}
           >
-            {pending ? 'Saving…' : 'Save this roadmap'}
+            {pending ? 'Applying…' : 'Apply roadmap to goal'}
           </button>
         </div>
       )}
+      {saved && <p role="status">Roadmap applied to this goal and its sub tasks.</p>}
       {proposal?.decision.kind === 'discuss' && (
         <p className="notice">{proposal.decision.explanation}</p>
       )}

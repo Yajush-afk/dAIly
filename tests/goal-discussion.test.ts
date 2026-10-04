@@ -70,6 +70,15 @@ describe('goal response recovery', () => {
       deadline: roadmap.deadline,
     })
     expect(saved.tasks.find((task) => task.id === doneId)).toEqual(completed)
+    expect(saved.goals[0].preferredDailyMinutes).toBe(180)
+    expect(saved.tasks.find((task) => task.id !== doneId)).toMatchObject(roadmap.tasks[0])
+    expect(saved.messages.at(-1)?.details).toMatchObject({
+      type: 'changes-accept',
+      payload: JSON.stringify({ decisionId: result.decisionId }),
+    })
+    expect(
+      store.goalConversation(goalId).some((message) => message.details?.type === 'changes-accept'),
+    ).toBe(false)
     store.close()
   })
   it('repairs an unknown task reference instead of accepting it', async () => {

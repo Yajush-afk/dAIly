@@ -330,7 +330,7 @@ export class DayApplication {
           })
         : item,
     )
-    const result = this.store.saveConfig({ ...config, goals, tasks })
+    this.store.saveConfig({ ...config, goals, tasks })
     this.store.put('messages', {
       id: randomUUID(),
       at: new Date(this.clock()).toISOString(),
@@ -344,7 +344,7 @@ export class DayApplication {
       },
     })
     this.changed()
-    return result
+    return this.store.view()
   }
   async importSchedule(file: {
     name: string

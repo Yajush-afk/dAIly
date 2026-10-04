@@ -156,7 +156,7 @@ export class Store {
   goalConversation(goalId: string, limit = 8): Snapshot['messages'] {
     return this.query(
       'messages',
-      "AND json_extract(value, '$.channel') = 'goal' AND json_extract(value, '$.goalId') = ? ORDER BY rowid DESC LIMIT ?",
+      "AND json_extract(value, '$.channel') = 'goal' AND json_extract(value, '$.goalId') = ? AND COALESCE(json_extract(value, '$.details.type'), '') != 'changes-accept' ORDER BY rowid DESC LIMIT ?",
       [goalId, limit],
     ).reverse()
   }
