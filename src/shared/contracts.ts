@@ -4,6 +4,8 @@ import type { MentorResult } from './planner'
 import type { SessionAction } from './session'
 import type { DayUpdate, ReviewedChanges, WorkflowResult } from './workflow'
 import type { HistoryQuery, HistoryPage } from './history'
+import type { GoalDiscussionInput, GoalDiscussionResult, RoadmapReview } from './goal-mentor'
+import type { ScheduleImportResult, ScheduleReview } from './timetable-import'
 export type StateUpdate = Partial<Snapshot> & { revision: number }
 export interface DesktopBridge {
   platform: string
@@ -17,7 +19,15 @@ export interface DesktopBridge {
   cancelModel(): Promise<void>
   openOllamaDownload(): Promise<void>
   onDownload(callback: (progress: DownloadProgress) => void): () => void
-  askMentor(text: string, intent?: 'plan' | 'conversation'): Promise<MentorResult>
+  askMentor(
+    text: string,
+    intent?: 'plan' | 'conversation',
+    images?: string[],
+  ): Promise<MentorResult>
+  discussGoal(input: GoalDiscussionInput): Promise<GoalDiscussionResult>
+  approveRoadmap(input: RoadmapReview): Promise<Snapshot>
+  importSchedule(): Promise<ScheduleImportResult | undefined>
+  confirmSchedule(input: ScheduleReview): Promise<Snapshot>
   acceptPlan(id: string): Promise<Snapshot>
   sessionAction(command: SessionAction): Promise<Snapshot>
   checkInAndPlan(update: DayUpdate): Promise<WorkflowResult>

@@ -115,7 +115,10 @@ export class OllamaClient {
         signal: AbortSignal.any([signal, AbortSignal.timeout(120000)]),
         body: JSON.stringify({
           model: MODEL,
-          messages,
+          messages: messages.map((message) => ({
+            ...message,
+            ...(message.images ? { images: message.images } : {}),
+          })),
           format,
           stream: false,
           keep_alive: '5m',
