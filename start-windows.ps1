@@ -12,6 +12,7 @@ $node = Get-Command node -ErrorAction SilentlyContinue
 if (!$node -or (& node -p 'process.versions.node.split(".")[0]') -ne '24') {
   if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64') { throw 'This Windows launcher requires an x64 PC.' }
   $manifest = (Invoke-WebRequest 'https://nodejs.org/dist/latest-v24.x/SHASUMS256.txt' -UseBasicParsing).Content
+  if ($manifest -is [byte[]]) { $manifest = [System.Text.Encoding]::UTF8.GetString($manifest) }
   $line = ($manifest -split "`n" | Where-Object { $_ -match ' node-v24\.[\d.]+-win-x64\.zip\s*$' } | Select-Object -First 1).Trim()
   if (!$line) { throw 'Unable to identify Node 24 download.' }
   $parts = $line -split '\s+'
