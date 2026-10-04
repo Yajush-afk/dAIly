@@ -45,7 +45,20 @@ export async function smoke(window: BrowserWindow, store: Store, directory: stri
         window.setSize(width, height)
         await new Promise(resolve => setTimeout(resolve, 100))
         assert(await js(`document.documentElement.scrollWidth <= innerWidth`), `${page} fits ${width} without horizontal overflow`)
-        writeFileSync(join(directory, `${page.toLowerCase()}-${width}.png`), (await window.webContents.capturePage()).toPNG())
+        // Windows virtual displays can briefly lose their capture surface after
+        // a resize. Retry that specific compositor error, but still fail if a
+        // usable screenshot cannot be captured.
+        for (let attempt = 0; ; attempt++) {
+          try {
+            const screenshot = await window.webContents.capturePage()
+            if (screenshot.isEmpty()) throw new Error('Empty desktop screenshot')
+            writeFileSync(join(directory, `${page.toLowerCase()}-${width}.png`), screenshot.toPNG())
+            break
+          } catch (error) {
+            if (!String(error).includes('UnknownVizError') || attempt >= 3) throw error
+            await new Promise(resolve => setTimeout(resolve, 500))
+          }
+        }
       }
     }
     window.close(); assert(!window.isDestroyed() && !window.isVisible(), 'Closing the window hides it to the tray')
