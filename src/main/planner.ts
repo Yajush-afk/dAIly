@@ -1,5 +1,8 @@
 import { DateTime } from 'luxon'
-import { TemporaryTaskExtractionSchema } from '../shared/temporary-tasks'
+import {
+  TemporaryTaskExtractionSchema,
+  parseTemporaryTaskExtraction,
+} from '../shared/temporary-tasks'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { DecisionSchema, type MentorResult } from '../shared/planner'
@@ -351,7 +354,7 @@ export class Planner {
         const extractionMessages: ChatMessage[] = [
           {
             role: 'system',
-            content: `Identify new one-off work explicitly mentioned in the latest update, such as assignments, applications, errands, or exam preparation. Return tasks only for work the user still needs to do, not completed events, availability, breaks, or existing tasks. Do not interpret "yes", approvals, or rejected suggestions as new tasks. Copy an exact sourceQuote from the update for each task. Infer duration only when explicitly supplied; otherwise use null. Resolve explicit relative deadlines in the saved timezone, otherwise use null. Do not invent facts. Today is ${DateTime.fromMillis(now, { zone: state.profile.timezone }).toISODate()}. Return compact JSON {tasks:[{title,estimateMinutes,deadline,sourceQuote}]}; return tasks:[] when there is no new work.`,
+            content: `Identify new one-off work explicitly mentioned in the latest update, such as assignments, applications, errands, or exam preparation. Return tasks only for work the user still needs to do, not completed events, availability, breaks, or existing tasks. Do not interpret "yes", approvals, or rejected suggestions as new tasks. Copy an exact sourceQuote from the update for each task. Infer duration only when explicitly supplied; otherwise use null. Resolve explicit relative deadlines in the saved timezone as YYYY-MM-DD dates, otherwise use null. Never return words such as "today" or "tomorrow" in deadline. Do not invent facts. Today is ${DateTime.fromMillis(now, { zone: state.profile.timezone }).toISODate()}. Return compact JSON {tasks:[{title,estimateMinutes,deadline,sourceQuote}]}; return tasks:[] when there is no new work.`,
           },
           {
             role: 'user',
@@ -378,18 +381,25 @@ export class Planner {
               'Your situation changed while Gemma was thinking. Request a fresh plan.',
             )
           try {
-            extracted = TemporaryTaskExtractionSchema.parse(JSON.parse(response.content)).tasks
+            extracted = parseTemporaryTaskExtraction(
+              response.content,
+              DateTime.fromMillis(now, { zone: state.profile.timezone }).toISODate()!,
+            ).tasks
             if (extracted.some((task) => !text.includes(task.sourceQuote)))
               throw new Error('Each sourceQuote must be copied exactly from the latest update.')
             break
           } catch (error) {
+            validationFailures.push('temporary_task_extraction_invalid')
             if (attempt === planningLimits.maximumAttempts - 1)
               throw new Error(
                 'dAIly could not check the new work in your update. Your existing plan is unchanged. Try again.',
               )
             extractionMessages.push(
               { role: 'assistant', content: response.content },
-              { role: 'user', content: `Correct the extraction: ${String(error).slice(0, 1000)}` },
+              {
+                role: 'user',
+                content: `Correct the extraction. Deadlines must be real YYYY-MM-DD dates or null, and sourceQuote must be copied exactly. Today is ${DateTime.fromMillis(now, { zone: state.profile.timezone }).toISODate()}. Validation: ${String(error).slice(0, 1000)}`,
+              },
             )
           }
         }
