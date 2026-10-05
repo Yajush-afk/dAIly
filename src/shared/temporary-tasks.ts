@@ -14,6 +14,19 @@ export const TemporaryTaskExtractionSchema = z
     tasks: z.array(TemporaryTaskDraftSchema).max(5),
   })
   .strict()
+export function temporaryTaskExtractionSchemaForUpdate(update: string) {
+  // Constrain decoding to actual source text rather than asking the model to reproduce it.
+  const source = update.trim()
+  return TemporaryTaskExtractionSchema.extend({
+    tasks: z
+      .array(
+        TemporaryTaskDraftSchema.extend({
+          sourceQuote: source.length > 0 && source.length <= 4000 ? z.enum([source]) : z.never(),
+        }),
+      )
+      .max(5),
+  })
+}
 export function parseTemporaryTaskExtraction(content: string, today: string) {
   const date = DateTime.fromISO(today, { zone: 'UTC' })
   if (!date.isValid) throw new Error('A valid local planning date is required.')
