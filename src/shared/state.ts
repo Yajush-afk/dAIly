@@ -187,6 +187,7 @@ export type Message = z.infer<typeof MessageSchema>
 export interface Snapshot {
   revision: number
   planningRevision?: number
+  preferredGoalId?: string
   recurringDeferrals?: { taskId: string; deferredDays: number }[]
   profile: Profile
   goals: Goal[]

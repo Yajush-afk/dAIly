@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { randomUUID } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../src/renderer/src/App'
 import { Store } from '../src/main/store'
@@ -141,7 +141,8 @@ describe('usable planning cycle', () => {
     await user.type(minutes, '3')
     await user.type(screen.getByLabelText('Actual work'), 'Read the first example.')
     await user.click(screen.getByRole('button', { name: 'Save outcome and reconsider today' }))
-    await screen.findAllByText('Build on your reported partial progress.')
+    await waitFor(() => expect(calls).toBe(2))
+    await screen.findAllByText('Scheduled in order: Read a graph example (5 minutes).')
     expect(store.snapshot().sessions[0].outcome).toBe('partial')
     expect(store.snapshot().sessions[0].elapsedSeconds).toBe(180)
     expect(store.snapshot().tasks[0].status).toBe('todo')

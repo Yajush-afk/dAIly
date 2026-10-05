@@ -176,6 +176,34 @@ describe('deterministic planning', () => {
     expect(decision.kind).toBe('propose_plan')
     if (decision.kind === 'propose_plan') expect(decision.choices[0].taskId).toBe(s.tasks[0].id)
   })
+  it('puts higher-priority goals ahead of distant deadlines while honoring urgent work', () => {
+    const s = scenario(),
+      dsaGoal = randomUUID(),
+      dsaTask = randomUUID()
+    s.goals[0] = { ...s.goals[0], priority: 4, deadline: '2026-12-05' }
+    s.tasks[0].deadline = null
+    s.goals.push({ id: dsaGoal, title: 'DSA', priority: 5, deadline: '2027-03-05' })
+    s.tasks.push({
+      id: dsaTask,
+      goalId: dsaGoal,
+      title: 'DP',
+      estimateMinutes: 600,
+      deadline: null,
+      status: 'todo',
+    })
+    const decision = {
+      ...proposal(s),
+      choices: [proposal(s).choices[0], { taskId: dsaTask, minutes: 30, reason: 'DSA matters.' }],
+    }
+    expect(orderPlanChoices(s, decision, now)).toMatchObject({
+      choices: [{ taskId: dsaTask }, { taskId: s.tasks[0].id }],
+    })
+    s.preferredGoalId = dsaGoal
+    s.tasks[0].deadline = '2026-10-05'
+    expect(orderPlanChoices(s, decision, now)).toMatchObject({
+      choices: [{ taskId: s.tasks[0].id }, { taskId: dsaTask }],
+    })
+  })
   it('repairs invalid output once and discards results if state changed', async () => {
     const s = scenario(),
       store = new Store(':memory:')
