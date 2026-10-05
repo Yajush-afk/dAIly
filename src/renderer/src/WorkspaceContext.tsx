@@ -5,6 +5,7 @@ import type { Snapshot } from '../../shared/state'
 import type { TemporaryTaskDraft } from '../../shared/temporary-tasks'
 import type { MentorResult } from '../../shared/planner'
 import type { DayUpdate, WorkflowResult } from '../../shared/workflow'
+import { resolveDayIntent } from '../../shared/day-intent'
 
 export const friendlyError = (reason: unknown): string =>
   String(reason)
@@ -46,7 +47,7 @@ export function useConversationController(state: Snapshot) {
       } else {
         const answer = await window.dAIly.askMentor(
           note.trim(),
-          planning.current ? 'plan' : 'conversation',
+          resolveDayIntent(note.trim(), planning.current ? 'plan' : 'conversation', state),
         )
         setResult(answer)
         if (answer.decision.kind === 'propose_changes') setChanges(answer.decision.tasks)

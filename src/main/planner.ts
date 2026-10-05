@@ -15,6 +15,7 @@ import { decisionConstraints, orderPlanChoices, validateDecision } from './polic
 import { planningLimits } from '../shared/planning-limits'
 import type { GoalDiscussionInput } from '../shared/goal-mentor'
 import { isGoalReference, requestedGoal, isUrgentTask } from './planning-preference'
+import { resolveDayIntent, isDayConfirmation } from '../shared/day-intent'
 export { decisionConstraints } from './policy'
 
 export function planningContext(state: Snapshot, now: number, currentRequest = '') {
@@ -237,6 +238,7 @@ export function modelFormat(
   state: Snapshot,
   allowPlanning = true,
   context?: { tasks: { id: string }[]; goals: { id: string }[] },
+  requirePlan = false,
 ): unknown {
   const taskIds = (context?.tasks || state.tasks.filter((t) => t.status === 'todo')).map(
       (t) => t.id,
@@ -272,6 +274,7 @@ export function modelFormat(
       )
     return value
   }
+  if (requirePlan && allowPlanning && taskIds.length) return bind(z.toJSONSchema(options[1]))
   return bind(z.toJSONSchema(z.union([options[0], options[1], ...options.slice(2)])))
 }
 
@@ -394,6 +397,58 @@ export class Planner {
       const now = this.clock(),
         state = this.store.planningState(now)
       const preferred = requestedGoal(text, state.goals)
+      const routedIntent = preferred ? 'plan' : resolveDayIntent(text, intent, state)
+      if (intent === 'conversation' && routedIntent === 'plan') discoverTemporaryTasks = true
+      intent = routedIntent
+      if (isDayConfirmation(text) && intent === 'plan') {
+        const last = [...state.messages].reverse().find((message) => message.role === 'mentor')
+        if (last?.details?.type === 'decision') {
+          let saved: { decision?: unknown; inputRevision?: number } = {}
+          try {
+            saved = JSON.parse(last.details.payload)
+          } catch {
+            /* Preserve ordinary validation for unreadable history. */
+          }
+          const decoded = DecisionSchema.safeParse(saved.decision)
+          if (
+            decoded.success &&
+            decoded.data.kind === 'propose_plan' &&
+            saved.inputRevision === state.planningRevision
+          ) {
+            const decision = decoded.data
+            const plan = this.store
+              .openPlans()
+              .find(
+                (candidate) =>
+                  candidate.status === 'proposed' &&
+                  candidate.inputRevision === saved.inputRevision &&
+                  candidate.summary === decision.summary,
+              )
+            if (plan) {
+              this.store.put('messages', {
+                id: randomUUID(),
+                at: new Date(now).toISOString(),
+                role: 'mentor',
+                channel: 'day',
+                text: 'Your updated plan is ready for review. Choose Apply plan to use this schedule.',
+                details: {
+                  type: 'decision',
+                  payload: JSON.stringify({ decision, inputRevision: saved.inputRevision }),
+                },
+              })
+              outcome = 'existing_proposal'
+              return {
+                decision,
+                decisionId: last.id,
+                planId: plan.id,
+                revision: this.store.revision,
+                durationMs: 0,
+                origin: 'guardrail',
+              }
+            }
+          }
+        }
+      }
       if (intent === 'plan' && preferred) {
         const cutoff = Math.max(
           now,
@@ -428,7 +483,13 @@ export class Planner {
       const goalRevisionOnly =
         preferred &&
         !/\b(assignment|application|errand|exam|new task|have to|must|due|submit)\b/i.test(text)
-      if (discoverTemporaryTasks && intent === 'plan' && hasTime && !goalRevisionOnly) {
+      if (
+        discoverTemporaryTasks &&
+        intent === 'plan' &&
+        hasTime &&
+        !goalRevisionOnly &&
+        !isDayConfirmation(text)
+      ) {
         const extractionMessages: ChatMessage[] = [
           {
             role: 'system',
@@ -575,7 +636,11 @@ export class Planner {
         { role: 'system', content: instructions },
         { role: 'user', content: JSON.stringify(context) },
       ]
-      const format = modelFormat(state, hasTime && intent === 'plan', context)
+      const requirePlan =
+        hasTime &&
+        intent === 'plan' &&
+        (Boolean(preferred) || resolveDayIntent(text, 'conversation', state) === 'plan')
+      const format = modelFormat(state, hasTime && intent === 'plan', context, requirePlan)
       if (images?.length) messages[1] = { ...messages[1], images }
       for (let attempt = 0; attempt < planningLimits.maximumAttempts; attempt++) {
         attempts++
@@ -591,6 +656,10 @@ export class Planner {
             now,
           )
           readableDecision(decision)
+          if (requirePlan && decision.kind !== 'propose_plan')
+            throw new Error(
+              'Create the requested reviewable plan now. Do not ask for another conversational confirmation; the user will review it with Apply plan.',
+            )
           if (
             intent === 'plan' &&
             hasTime &&
