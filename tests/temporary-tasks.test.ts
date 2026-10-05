@@ -6,6 +6,8 @@ import { Sessions } from '../src/main/sessions'
 import { DayApplication } from '../src/main/application'
 import { defaultProfile } from '../src/shared/state'
 import type { OllamaClient } from '../src/main/ollama'
+import { temporaryTaskExtractionSchemaForUpdate } from '../src/shared/temporary-tasks'
+import { z } from 'zod'
 
 const update =
   'I have time until 2.30. Tomorrow I have an assignment due - it will take an hour to finish.'
@@ -89,6 +91,60 @@ async function propose(app: DayApplication) {
   })
 }
 describe('temporary plan work', () => {
+  it('constrains source quotes to the update without changing capitalization or punctuation', () => {
+    const text = 'Just woke up, i have an assignment due today.\nSubmit "draft 1" in college!'
+    const schema = temporaryTaskExtractionSchemaForUpdate(text)
+    expect(schema.parse({ tasks: [{ ...draft, sourceQuote: text }] }).tasks).toHaveLength(1)
+    expect(() =>
+      schema.parse({ tasks: [{ ...draft, sourceQuote: 'I have an assignment due today.' }] }),
+    ).toThrow()
+    expect(temporaryTaskExtractionSchemaForUpdate('').parse({ tasks: [] })).toEqual({ tasks: [] })
+    expect(z.toJSONSchema(schema).properties?.tasks).toBeDefined()
+  })
+  it('offers grounded quote choices for the reported assignment update and still requires review', async () => {
+    const { store, app, chat } = setup()
+    const text =
+      'Just woke up sometime before, i have an assignment due for today that i have to submit in college. I will be attending full college today. Plan my day for today accordingly'
+    const quote = text
+    chat.mockImplementation(async (_messages, format) => {
+      const schema = format as {
+        properties: { tasks: { items: { properties: { sourceQuote: { enum: string[] } } } } }
+      }
+      expect(schema.properties.tasks.items.properties.sourceQuote.enum).toContain(quote)
+      expect(
+        schema.properties.tasks.items.properties.sourceQuote.enum.every((source) =>
+          text.includes(source),
+        ),
+      ).toBe(true)
+      return {
+        content: JSON.stringify({
+          tasks: [{ ...draft, estimateMinutes: null, sourceQuote: quote }],
+        }),
+        durationMs: 1,
+        tokens: 1,
+      }
+    })
+    try {
+      const before = store.config()
+      const response = await app.checkInAndPlan({
+        text,
+        until: '02:30',
+        energy: 'okay',
+        busyStart: '',
+        busyEnd: '',
+      })
+      expect(response.planningError).toBeUndefined()
+      expect(response.result?.decision).toMatchObject({
+        kind: 'propose_temporary_tasks',
+        tasks: [{ sourceQuote: quote, estimateMinutes: null }],
+      })
+      expect(store.config()).toEqual(before)
+      expect(store.openPlans()).toEqual([])
+      expect(chat).toHaveBeenCalledTimes(1)
+    } finally {
+      store.close()
+    }
+  })
   it('reviews assignments before embedding them in a proposed plan with breaks and goal work', async () => {
     const { store, app, planner, sessions, advance } = setup()
     try {

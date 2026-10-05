@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 import {
-  TemporaryTaskExtractionSchema,
+  temporaryTaskExtractionSchemaForUpdate,
   parseTemporaryTaskExtraction,
 } from '../shared/temporary-tasks'
 import { randomUUID } from 'node:crypto'
@@ -368,12 +368,13 @@ export class Planner {
             }),
           },
         ]
+        const extractionSchema = temporaryTaskExtractionSchemaForUpdate(text)
         let extracted: import('../shared/temporary-tasks').TemporaryTaskDraft[] = []
         for (let attempt = 0; attempt < planningLimits.maximumAttempts; attempt++) {
           attempts++
           const response = await this.model.chat(
             extractionMessages,
-            z.toJSONSchema(TemporaryTaskExtractionSchema),
+            z.toJSONSchema(extractionSchema),
             { maxTokens: 768 },
           )
           if (this.store.planningRevision !== state.planningRevision)
