@@ -389,10 +389,22 @@ export class Planner {
               throw new Error('Each sourceQuote must be copied exactly from the latest update.')
             break
           } catch (error) {
-            validationFailures.push('temporary_task_extraction_invalid')
+            const category =
+              error instanceof z.ZodError
+                ? error.issues.map((issue) => `${issue.path.join('.')}:${issue.code}`).join(',')
+                : error instanceof SyntaxError
+                  ? 'invalid_json'
+                  : 'source_quote_not_found'
+            validationFailures.push(`temporary_task_extraction_invalid:${category}`)
             if (attempt === planningLimits.maximumAttempts - 1)
               throw new Error(
-                'dAIly could not check the new work in your update. Your existing plan is unchanged. Try again.',
+                `dAIly could not check the new work in your update. ${
+                  error instanceof z.ZodError
+                    ? 'Gemma returned invalid task details.'
+                    : error instanceof SyntaxError
+                      ? 'Gemma returned an incomplete response.'
+                      : 'Gemma changed the wording of your update, so the work could not be verified.'
+                } Your existing plan is unchanged. Try again.`,
               )
             extractionMessages.push(
               { role: 'assistant', content: response.content },

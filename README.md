@@ -37,3 +37,5 @@ See [application architecture](docs/architecture.md) for indexed storage, bounde
 With a checkout of this repository, run `bash ./start-ubuntu.sh` on Ubuntu 24.04 or newer, or `powershell -NoProfile -ExecutionPolicy Bypass -File .\start-windows.ps1` on Windows x64. These scripts install dependencies and local AI, then open the isolated demo. Initial model downloads need internet. Add `--normal` on Ubuntu or `-Normal` on Windows to use personal application data.
 
 For copying an exact demo take between computers, see [Demo recording and database transfer](docs/demo-recording.md).
+
+For a Windows recording, follow the [step-by-step PowerShell commands](docs/demo-recording.md#windows-recording-step-by-step). The first run uses `start-windows.ps1 -Reset`; subsequent takes can use `-SkipInstall -Reset` to reuse installed packages and Gemma.
