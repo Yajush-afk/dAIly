@@ -2,6 +2,7 @@ import type { Snapshot } from '../shared/state'
 import type { Decision } from '../shared/planner'
 import { planningLimits } from '../shared/planning-limits'
 import { currentCheckIn, availableIntervals } from './scheduler'
+import { isUrgentTask } from './planning-preference'
 export function decisionConstraints(
   state: Snapshot,
   now: number,
@@ -65,7 +66,7 @@ export function decisionConstraints(
   }
 }
 
-export function orderPlanChoices(state: Snapshot, decision: Decision): Decision {
+export function orderPlanChoices(state: Snapshot, decision: Decision, now = Date.now()): Decision {
   if (decision.kind !== 'propose_plan') return decision
   const tasks = new Map(state.tasks.map((task) => [task.id, task]))
   const goals = new Map(state.goals.map((goal) => [goal.id, goal]))
@@ -81,11 +82,21 @@ export function orderPlanChoices(state: Snapshot, decision: Decision): Decision 
   return {
     ...decision,
     choices: [...decision.choices].sort((a, b) => {
-      const byDeadline = deadline(a.taskId).localeCompare(deadline(b.taskId))
-      if (byDeadline) return byDeadline
+      const ta = tasks.get(a.taskId)!,
+        tb = tasks.get(b.taskId)!
+      const urgent = Number(isUrgentTask(state, tb, now)) - Number(isUrgentTask(state, ta, now))
+      if (urgent) return urgent
+      if (isUrgentTask(state, ta, now)) {
+        const due = deadline(a.taskId).localeCompare(deadline(b.taskId))
+        if (due) return due
+      }
+      const preferred =
+        Number(tb.goalId === state.preferredGoalId) - Number(ta.goalId === state.preferredGoalId)
+      if (state.preferredGoalId && preferred) return preferred
       return (
         (goals.get(tasks.get(b.taskId)?.goalId || '')?.priority || 1) -
-        (goals.get(tasks.get(a.taskId)?.goalId || '')?.priority || 1)
+          (goals.get(tasks.get(a.taskId)?.goalId || '')?.priority || 1) ||
+        deadline(a.taskId).localeCompare(deadline(b.taskId))
       )
     }),
   }
@@ -103,6 +114,21 @@ export function validateDecision(state: Snapshot, decision: Decision, now: numbe
       'No useful time remains today. Recommend rest or stopping, or ask a relevant clarification.',
     )
   if (decision.kind === 'propose_plan') {
+    if (
+      state.preferredGoalId &&
+      decision.choices.some((choice) => {
+        const task = state.tasks.find((item) => item.id === choice.taskId)
+        return (
+          task &&
+          task.goalId !== null &&
+          task.goalId !== state.preferredGoalId &&
+          !isUrgentTask(state, task, now)
+        )
+      })
+    )
+      throw new Error(
+        'Respect the requested goal preference; keep other flexible goal work out of this revision.',
+      )
     if (
       state.tasks.some(
         (task) =>

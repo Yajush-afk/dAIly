@@ -14,9 +14,10 @@ import type { OllamaClient } from './ollama'
 import { decisionConstraints, orderPlanChoices, validateDecision } from './policy'
 import { planningLimits } from '../shared/planning-limits'
 import type { GoalDiscussionInput } from '../shared/goal-mentor'
+import { isGoalReference, requestedGoal, isUrgentTask } from './planning-preference'
 export { decisionConstraints } from './policy'
 
-export function planningContext(state: Snapshot, now: number) {
+export function planningContext(state: Snapshot, now: number, currentRequest = '') {
   const week = now - 7 * 86400000
   const goals = new Map(state.goals.map((g) => [g.id, g]))
   const deadline = (task: Snapshot['tasks'][number]): string =>
@@ -25,6 +26,13 @@ export function planningContext(state: Snapshot, now: number) {
       .sort()[0] || '9999'
   const todo = state.tasks.filter((t) => t.status === 'todo')
   const tasks = [...todo]
+    .filter(
+      (task) =>
+        !state.preferredGoalId ||
+        task.goalId === null ||
+        task.goalId === state.preferredGoalId ||
+        isUrgentTask(state, task, now),
+    )
     .sort(
       (a, b) =>
         Number(b.goalId === null) - Number(a.goalId === null) ||
@@ -36,6 +44,7 @@ export function planningContext(state: Snapshot, now: number) {
       ...t,
       title: t.title.slice(0, 160),
       goalPriority: goals.get(t.goalId || '')?.priority ?? 5,
+      goalTitle: goals.get(t.goalId || '')?.title ?? null,
       goalDeadline: goals.get(t.goalId || '')?.deadline ?? null,
       preferredDailyMinutes: goals.get(t.goalId || '')?.preferredDailyMinutes ?? null,
       remainingEstimateMinutes:
@@ -55,6 +64,9 @@ export function planningContext(state: Snapshot, now: number) {
   const checkIn = currentCheckIn(state, now)
   const limits = decisionConstraints(state, now)
   const context = {
+    currentRequest: currentRequest.slice(0, 4000),
+    preferredGoalId: state.preferredGoalId ?? null,
+    confirmedTemporaryTasks: tasks.filter((task) => task.goalId === null),
     now: new Date(now).toISOString(),
     revision: state.revision,
     decisionConstraints: {
@@ -149,7 +161,7 @@ export function planningContext(state: Snapshot, now: number) {
   }
   return context
 }
-const instructions = `You are dAIly, Kushagra's clear and practical college mentor. Reply to Kushagra as a person. Never narrate your hidden reasoning, label fields, quote IDs, or print implementation details such as "Task ID", "minutes:", "reason:", "choices:", or "deferred:". Return only one concise JSON decision. Use only supplied facts and exact task/goal IDs in fields that request IDs. Priority 5 is highest and 1 is lowest. Compare goal priorities, upcoming deadlines, preferred minutes per day, available time, energy, and recent effort. Preferences are targets that may be exceeded or reduced when today's time, exam urgency, or current priority warrants it; explain a meaningful trade-off. Do not repeat a full task the user has repeatedly deferred; ask one direct question about the recorded obstacle or choose a distinct smaller task. Unknown means unknown. Never invent completed work, time spent, or preferences. Preserve concrete task scope. A short focus block can make partial progress; it does not complete a whole task. Low energy calls for one smaller focus block or rest. If an actionable task fits the available time, make a propose_plan with one or more short blocks. Do not answer with generic encouragement or propose task/preference changes just because the user has little time or low energy. Use propose_changes only when the user asks to edit goals, tasks, or preferences, or a distinct new smaller step is needed to unblock repeated difficulty. Never propose a renamed copy of an existing task or a preference value that is already set. Confirmed temporary tasks are real obligations for this planning day. Account for each unfinished temporary task in choices or explicitly defer it with a practical reason. Put urgent deadlines ahead of flexible goal work. A temporary task choice may request up to 120 minutes of total work; the application splits it into preferred focus blocks and inserts breaks. Explain partial work honestly. The app schedules only choices in propose_plan, never text in respond. Choose at most ${planningLimits.maximumChoices} blocks, each within focus preference and available time. A plan has kind, summary, choices [{taskId,minutes,reason}], deferred [{taskId,reason}]. Reasons are short sentences for Kushagra with no identifiers. Include only useful deferrals. Ask one question only if the answer changes the decision. respond is for a brief explanation or stop-for-today only, never disguise a task schedule as prose. Avoid em dashes.`
+const instructions = `You are dAIly, Kushagra's clear and practical college mentor. Reply to Kushagra as a person. Never narrate your hidden reasoning, label fields, quote IDs, or print implementation details such as "Task ID", "minutes:", "reason:", "choices:", or "deferred:". Return only one concise JSON decision. Use only supplied facts and exact task/goal IDs in fields that request IDs. Priority 5 is highest and 1 is lowest. Compare goal priorities, upcoming deadlines, preferred minutes per day, available time, energy, and recent effort. preferredGoalId is an explicit request for this planning day: choose that goal for flexible goal work. Only an imminent deadline can take precedence. Long-term deadlines do not automatically outrank a higher priority. Preferences are targets that may be exceeded or reduced when today's time, exam urgency, or current priority warrants it; explain a meaningful trade-off. Do not repeat a full task the user has repeatedly deferred; ask one direct question about the recorded obstacle or choose a distinct smaller task. Unknown means unknown. Never invent completed work, time spent, or preferences. Preserve concrete task scope. A short focus block can make partial progress; it does not complete a whole task. Low energy calls for one smaller focus block or rest. If an actionable task fits the available time, make a propose_plan with one or more short blocks. Do not answer with generic encouragement or propose task/preference changes just because the user has little time or low energy. Use propose_changes only when the user asks to edit goals, tasks, or preferences, or a distinct new smaller step is needed to unblock repeated difficulty. Never propose a renamed copy of an existing task or a preference value that is already set. Confirmed temporary tasks are real obligations for this planning day. If the response schema has confirmedWork, fill every required task entry with action schedule and minutes, or action defer and a reason. These entries are authoritative and may also appear in choices; never interpret a dismissed new suggestion as cancelling confirmed work. Account for each unfinished temporary task in choices or explicitly defer it with a practical reason. Put urgent deadlines ahead of flexible goal work. A temporary task choice may request up to 120 minutes of total work; the application splits it into preferred focus blocks and inserts breaks. Explain partial work honestly. The app schedules only choices in propose_plan, never text in respond. Choose at most ${planningLimits.maximumChoices} blocks, each within focus preference and available time. A plan has kind, summary, choices [{taskId,minutes,reason}], deferred [{taskId,reason}]. Reasons are short sentences for Kushagra with no identifiers. Include only useful deferrals. Ask one question only if the answer changes the decision. respond is for a brief explanation or stop-for-today only, never disguise a task schedule as prose. Avoid em dashes.`
 const readableDecision = (decision: import('../shared/planner').Decision): void => {
   const copy =
     decision.kind === 'propose_plan'
@@ -175,6 +187,52 @@ const readableDecision = (decision: import('../shared/planner').Decision): void 
     )
 }
 
+function confirmedWorkSchema(state: Snapshot) {
+  return z
+    .object(
+      Object.fromEntries(
+        state.tasks
+          .filter((task) => task.goalId === null && task.status === 'todo')
+          .map((task) => [
+            task.id,
+            z.discriminatedUnion('action', [
+              z
+                .object({
+                  action: z.literal('schedule'),
+                  minutes: z.number().int().min(5).max(180),
+                  reason: z.string().trim().min(1).max(1000),
+                })
+                .strict(),
+              z
+                .object({ action: z.literal('defer'), reason: z.string().trim().min(1).max(1000) })
+                .strict(),
+            ]),
+          ]),
+      ),
+    )
+    .strict()
+}
+export function parsePlanningDecision(content: string, state: Snapshot) {
+  const raw = JSON.parse(content, (_key, value: unknown) =>
+    typeof value === 'string' ? value.replaceAll('—', '; ') : value,
+  )
+  if (raw.kind === 'propose_plan' && raw.confirmedWork !== undefined) {
+    const { confirmedWork, ...fields } = raw
+    const work = confirmedWorkSchema(state).parse(confirmedWork)
+    const plan = DecisionSchema.options[1].parse(fields)
+    const ids = new Set(Object.keys(work))
+    plan.choices = plan.choices.filter((choice) => !ids.has(choice.taskId))
+    plan.deferred = plan.deferred.filter((item) => !ids.has(item.taskId))
+    for (const [taskId, disposition] of Object.entries(work)) {
+      if (disposition.action === 'schedule')
+        plan.choices.push({ taskId, minutes: disposition.minutes, reason: disposition.reason })
+      else plan.deferred.push({ taskId, reason: disposition.reason })
+    }
+    return DecisionSchema.parse(plan)
+  }
+  return DecisionSchema.parse(raw)
+}
+
 export function modelFormat(
   state: Snapshot,
   allowPlanning = true,
@@ -186,7 +244,13 @@ export function modelFormat(
     goalIds = (context?.goals || state.goals).map((g) => g.id)
   const options = [
     DecisionSchema.options[0],
-    ...(allowPlanning && taskIds.length ? [DecisionSchema.options[1]] : []),
+    ...(allowPlanning && taskIds.length
+      ? [
+          state.tasks.some((t) => t.goalId === null && t.status === 'todo')
+            ? DecisionSchema.options[1].extend({ confirmedWork: confirmedWorkSchema(state) })
+            : DecisionSchema.options[1],
+        ]
+      : []),
     ...(allowPlanning &&
     goalIds.length &&
     !state.tasks.some((task) => task.goalId === null && task.status === 'todo')
@@ -329,6 +393,17 @@ export class Planner {
       })
       const now = this.clock(),
         state = this.store.planningState(now)
+      const preferred = requestedGoal(text, state.goals)
+      if (intent === 'plan' && preferred) {
+        const cutoff = Math.max(
+          now,
+          ...availableIntervals(state, now).map((interval) => interval.end),
+        )
+        this.store.setDayGoalPreference(preferred, new Date(cutoff).toISOString())
+        state.preferredGoalId = preferred
+        state.planningRevision = this.store.planningRevision
+        state.revision = this.store.revision
+      }
       const hasTime =
         decisionConstraints(state, now).maxBlockMinutes >= planningLimits.minimumBlockMinutes
       if (!hasTime && intent === 'plan') {
@@ -350,18 +425,28 @@ export class Planner {
         outcome = 'availability'
         return { decision, revision: this.store.revision, durationMs: 0, origin: 'availability' }
       }
-      if (discoverTemporaryTasks && intent === 'plan' && hasTime) {
+      const goalRevisionOnly =
+        preferred &&
+        !/\b(assignment|application|errand|exam|new task|have to|must|due|submit)\b/i.test(text)
+      if (discoverTemporaryTasks && intent === 'plan' && hasTime && !goalRevisionOnly) {
         const extractionMessages: ChatMessage[] = [
           {
             role: 'system',
-            content: `Identify new one-off work explicitly mentioned in the latest update, such as assignments, applications, errands, or exam preparation. Return tasks only for work the user still needs to do, not completed events, availability, breaks, or existing tasks. Do not interpret "yes", approvals, or rejected suggestions as new tasks. Copy an exact sourceQuote from the update for each task. Infer duration only when explicitly supplied; otherwise use null. Resolve explicit relative deadlines in the saved timezone as YYYY-MM-DD dates, otherwise use null. Never return words such as "today" or "tomorrow" in deadline. Do not invent facts. Today is ${DateTime.fromMillis(now, { zone: state.profile.timezone }).toISODate()}. Return compact JSON {tasks:[{title,estimateMinutes,deadline,sourceQuote}]}; return tasks:[] when there is no new work.`,
+            content: `Identify new one-off work explicitly mentioned in the latest update, such as assignments, applications, errands, or exam preparation. Return tasks only for work the user still needs to do, not completed events, availability, class or college attendance, breaks, existing goals, or existing tasks. Requests to prioritize, squeeze in, or revise an existing goal are plan revisions, not new obligations. Do not interpret "yes", approvals, or rejected suggestions as new tasks. Copy an exact sourceQuote from the update for each task. Infer duration only when explicitly supplied; otherwise use null. Resolve explicit relative deadlines in the saved timezone as YYYY-MM-DD dates, otherwise use null. Never return words such as "today" or "tomorrow" in deadline. Do not invent facts. Today is ${DateTime.fromMillis(now, { zone: state.profile.timezone }).toISODate()}. Return compact JSON {tasks:[{title,estimateMinutes,deadline,sourceQuote}]}; return tasks:[] when there is no new work.`,
           },
           {
             role: 'user',
             content: JSON.stringify({
               update: text,
-              existingTasks: state.tasks.map(({ title, deadline, estimateMinutes }) => ({
+              existingGoals: state.goals.map(({ id, title, priority }) => ({
+                id,
                 title,
+                priority,
+              })),
+              confirmedTemporaryTasks: state.tasks.filter((task) => task.goalId === null),
+              existingTasks: state.tasks.map(({ title, goalId, deadline, estimateMinutes }) => ({
+                title,
+                goalId,
                 deadline,
                 estimateMinutes,
               })),
@@ -423,6 +508,13 @@ export class Planner {
             .trim()
         const seen = new Set(state.tasks.map((task) => normalize(task.title)))
         extracted = extracted.filter((task) => {
+          if (isGoalReference(task.title, state.goals)) return false
+          if (
+            /^(?:(?:attend(?:ing)?|go(?:ing)? to)\s+)?(?:full\s+)?(?:college|school|classes)(?:\s+(?:today|tomorrow|all day|full day))?$/i.test(
+              task.title.trim(),
+            )
+          )
+            return false
           const key = normalize(task.title)
           if (seen.has(key)) return false
           seen.add(key)
@@ -478,7 +570,7 @@ export class Planner {
         outcome = 'missing_tasks'
         return { decision, revision: this.store.revision, durationMs: 0, origin: 'missing_tasks' }
       }
-      const context = planningContext(state, now)
+      const context = planningContext(state, now, text)
       const messages: ChatMessage[] = [
         { role: 'system', content: instructions },
         { role: 'user', content: JSON.stringify(context) },
@@ -487,17 +579,16 @@ export class Planner {
       if (images?.length) messages[1] = { ...messages[1], images }
       for (let attempt = 0; attempt < planningLimits.maximumAttempts; attempt++) {
         attempts++
-        const response = await this.model.chat(messages, format)
+        const response = await this.model.chat(messages, format, {
+          maxTokens: 1024 + state.tasks.filter((task) => task.goalId === null).length * 128,
+        })
         if (this.store.planningRevision !== state.planningRevision)
           throw new Error('Your situation changed while Gemma was thinking. Request a fresh plan.')
         try {
-          const decision = orderPlanChoices(
+          let decision = orderPlanChoices(
             state,
-            DecisionSchema.parse(
-              JSON.parse(response.content, (_key, value: unknown) =>
-                typeof value === 'string' ? value.replaceAll('—', '; ') : value,
-              ),
-            ),
+            parsePlanningDecision(response.content, state),
+            now,
           )
           readableDecision(decision)
           if (
@@ -516,6 +607,8 @@ export class Planner {
           validateDecision(state, decision, decisionTime)
           const plan =
             decision.kind === 'propose_plan' ? schedule(state, decision, decisionTime) : undefined
+          if (plan && decision.kind === 'propose_plan')
+            decision = { ...decision, summary: plan.summary }
           const decisionId = randomUUID()
           this.store.transaction(() => {
             if (plan)
@@ -558,6 +651,33 @@ export class Planner {
                 : 'decision_constraints_failed',
           )
           if (attempt === planningLimits.maximumAttempts - 1) {
+            const confirmed = state.tasks.filter(
+              (task) => task.goalId === null && task.status === 'todo',
+            )
+            if (intent === 'plan' && confirmed.length) {
+              const decision = {
+                kind: 'ask_question' as const,
+                question: `Your confirmed work is still saved: ${confirmed.map((task) => task.title).join(', ')}. Should I reserve time for it before your goal work, or explicitly defer it in this plan?`,
+              }
+              this.store.put('messages', {
+                id: randomUUID(),
+                at: new Date(this.clock()).toISOString(),
+                role: 'mentor',
+                channel: 'day',
+                text: decision.question,
+                details: {
+                  type: 'decision',
+                  payload: JSON.stringify({ origin: 'guardrail', decision }),
+                },
+              })
+              outcome = 'guardrail_question'
+              return {
+                decision,
+                revision: this.store.revision,
+                durationMs: Math.round(performance.now() - started),
+                origin: 'guardrail',
+              }
+            }
             const obstacle = decisionConstraints(state, this.clock()).repeatedObstacles[0]
             const task = obstacle && state.tasks.find((item) => item.id === obstacle.taskId)
             if (intent === 'plan' && obstacle && task) {

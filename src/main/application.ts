@@ -196,7 +196,7 @@ export class DayApplication {
     return this.reconsider(
       review.action === 'accept'
         ? 'I confirmed temporary work for this plan. Prioritize its deadline, account for its estimated total effort and breaks, then fit remaining goal work honestly. Propose the full schedule for my review.'
-        : 'I chose not to add that work. Plan using only existing tasks.',
+        : 'I dismissed only the unconfirmed suggestion. Keep all previously confirmed temporary obligations and my requested goal preference. Revise the plan using those obligations and my saved goal tasks.',
     )
   }
   clearPlan(): Snapshot {

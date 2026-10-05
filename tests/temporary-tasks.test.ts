@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { Store } from '../src/main/store'
-import { Planner } from '../src/main/planner'
+import { Planner, modelFormat, parsePlanningDecision } from '../src/main/planner'
 import { Sessions } from '../src/main/sessions'
 import { DayApplication } from '../src/main/application'
 import { defaultProfile } from '../src/shared/state'
 import type { OllamaClient } from '../src/main/ollama'
 import { temporaryTaskExtractionSchemaForUpdate } from '../src/shared/temporary-tasks'
 import { z } from 'zod'
+import { requestedGoal, isGoalReference } from '../src/main/planning-preference'
 
 const update =
   'I have time until 2.30. Tomorrow I have an assignment due - it will take an hour to finish.'
@@ -91,6 +92,216 @@ async function propose(app: DayApplication) {
   })
 }
 describe('temporary plan work', () => {
+  it('recognizes a goal revision without turning related new work into an existing goal', () => {
+    const { store } = setup()
+    try {
+      const goals = store.config().goals
+      expect(requestedGoal('Prioritize DSA instead of GSoC', goals)).toBe(goals[0].id)
+      expect(requestedGoal('Do not focus on DSA', goals)).toBeUndefined()
+      expect(isGoalReference('squeez DSA', goals)).toBe(true)
+      expect(isGoalReference('Read a new DSA book', goals)).toBe(false)
+    } finally {
+      store.close()
+    }
+  })
+  it('expires the saved goal preference at the planning cutoff', async () => {
+    const { store, planner, app, now, advance } = setup()
+    try {
+      await propose(app)
+      await planner.request('Focus on DSA')
+      expect(store.planningState(now()).preferredGoalId).toBe(store.config().goals[0].id)
+      advance(300)
+      expect(store.planningState(now()).preferredGoalId).toBeUndefined()
+    } finally {
+      store.close()
+    }
+  })
+  it('keeps the assignment and requested DSA goal through a revision and dismissal', async () => {
+    const { store, app, planner, chat, taskId, now } = setup()
+    const gsoc = randomUUID(),
+      gsocTask = randomUUID()
+    const config = store.config()
+    config.goals[0] = { ...config.goals[0], title: 'DSA for interviews' }
+    config.goals.push({ id: gsoc, title: 'Prepare for GSoC', priority: 4, deadline: '2026-12-05' })
+    config.tasks.push({
+      id: gsocTask,
+      goalId: gsoc,
+      title: 'Read issue #129',
+      estimateMinutes: 60,
+      deadline: null,
+      status: 'todo',
+    })
+    store.saveConfig(config)
+    chat.mockImplementation(async (messages, format) => {
+      if (messages[0].content.startsWith('Identify new one-off')) {
+        const context = JSON.parse(messages[1].content)
+        expect(context.existingGoals).toContainEqual(
+          expect.objectContaining({ title: 'DSA for interviews' }),
+        )
+        return {
+          content: JSON.stringify({ tasks: context.update === update ? [draft] : [] }),
+          durationMs: 1,
+          tokens: 1,
+        }
+      }
+      const context = JSON.parse(messages[1].content)
+      if (context.preferredGoalId)
+        expect(context.tasks.some((task: { id: string }) => task.id === gsocTask)).toBe(false)
+      const work = Object.fromEntries(
+        context.confirmedTemporaryTasks.map((task: { id: string }) => [
+          task.id,
+          { action: 'schedule', minutes: 60, reason: 'Your assignment is due.' },
+        ]),
+      )
+      expect(JSON.stringify(format)).toContain('confirmedWork')
+      return {
+        content: JSON.stringify({
+          kind: 'propose_plan',
+          summary: 'Misleading: only do GSoC.',
+          choices: [{ taskId, minutes: 45, reason: 'Make progress on DSA.' }],
+          deferred: [],
+          confirmedWork: work,
+        }),
+        durationMs: 1,
+        tokens: 1,
+      }
+    })
+    try {
+      const proposed = await propose(app)
+      await app.reviewTemporaryTasks({
+        decisionId: proposed.result!.decisionId!,
+        action: 'accept',
+        tasks: [draft],
+      })
+      const extractionCalls = chat.mock.calls.filter(([messages]) =>
+        messages[0].content.startsWith('Identify new one-off'),
+      ).length
+      const revised = await planner.request(
+        'I think i wanna squeez DSA instead of working on GSoC goals, as it is my higher priority',
+        'plan',
+        [],
+        true,
+      )
+      expect(revised.decision.kind).toBe('propose_plan')
+      expect(
+        chat.mock.calls.filter(([messages]) =>
+          messages[0].content.startsWith('Identify new one-off'),
+        ),
+      ).toHaveLength(extractionCalls)
+      const preference = store.planningState(now()).preferredGoalId
+      expect(preference).toBe(config.goals[0].id)
+      const legacySuggestion = randomUUID()
+      store.put('messages', {
+        id: legacySuggestion,
+        at: new Date(now()).toISOString(),
+        role: 'mentor',
+        text: 'Review new work.',
+        details: {
+          type: 'decision',
+          payload: JSON.stringify({
+            decision: {
+              kind: 'propose_temporary_tasks',
+              explanation: 'Review new work.',
+              tasks: [{ ...draft, title: 'DSA for interviews' }],
+              until: '2026-10-05T02:30:00Z',
+            },
+            inputRevision: store.planningRevision,
+          }),
+        },
+      })
+      const dismissed = await app.reviewTemporaryTasks({
+        decisionId: legacySuggestion,
+        action: 'dismiss',
+        tasks: [],
+      })
+      expect(dismissed.planningError).toBeUndefined()
+      const plan = store.get('plans', dismissed.result!.planId!)!
+      expect(plan.temporaryTasks).toHaveLength(1)
+      expect(
+        plan.blocks.filter((block) => block.kind === 'focus').map((block) => block.title),
+      ).toEqual(['Finish assignment', 'Finish assignment', 'Dynamic Programming'])
+      expect(plan.summary).not.toContain('GSoC')
+      expect(plan.summary).toContain('Dynamic Programming (45 minutes)')
+      expect(store.planningState(now()).preferredGoalId).toBe(preference)
+      expect(store.config()).toEqual(config)
+    } finally {
+      store.close()
+    }
+  })
+  it('asks about preserved obligations if the model repeatedly omits them', async () => {
+    const { store, app, planner, chat, taskId } = setup()
+    try {
+      const proposal = await propose(app)
+      await app.reviewTemporaryTasks({
+        decisionId: proposal.result!.decisionId!,
+        action: 'accept',
+        tasks: [draft],
+      })
+      const plans = store.openPlans()
+      chat.mockResolvedValue({
+        content: JSON.stringify({
+          kind: 'propose_plan',
+          summary: 'Do DP.',
+          choices: [{ taskId, minutes: 30, reason: 'DSA matters.' }],
+          deferred: [],
+        }),
+        durationMs: 1,
+        tokens: 1,
+      })
+      const result = await planner.request('Adjust the plan')
+      expect(result.origin).toBe('guardrail')
+      expect(result.decision).toMatchObject({
+        kind: 'ask_question',
+        question: expect.stringContaining('Finish assignment'),
+      })
+      expect(store.openPlans()).toEqual(plans)
+    } finally {
+      store.close()
+    }
+  })
+  it('requires a disposition for every confirmed obligation in structured decoding', async () => {
+    const { store, app, now } = setup()
+    try {
+      const proposal = await propose(app)
+      await app.reviewTemporaryTasks({
+        decisionId: proposal.result!.decisionId!,
+        action: 'accept',
+        tasks: [draft],
+      })
+      const state = store.planningState(now())
+      const id = state.tasks.find((task) => task.goalId === null)!.id
+      const format = JSON.stringify(modelFormat(state))
+      expect(format).toContain('confirmedWork')
+      expect(format).toContain(id)
+      expect(() =>
+        parsePlanningDecision(
+          JSON.stringify({
+            kind: 'propose_plan',
+            summary: 'Do work.',
+            choices: [],
+            deferred: [],
+            confirmedWork: {},
+          }),
+          state,
+        ),
+      ).toThrow()
+      const parsed = parsePlanningDecision(
+        JSON.stringify({
+          kind: 'propose_plan',
+          summary: 'Do work.',
+          choices: [],
+          deferred: [],
+          confirmedWork: { [id]: { action: 'defer', reason: 'Please confirm a later slot.' } },
+        }),
+        state,
+      )
+      expect(parsed).toMatchObject({
+        deferred: [{ taskId: id, reason: 'Please confirm a later slot.' }],
+      })
+    } finally {
+      store.close()
+    }
+  })
   it('constrains source quotes to the update without changing capitalization or punctuation', () => {
     const text = 'Just woke up, i have an assignment due today.\nSubmit "draft 1" in college!'
     const schema = temporaryTaskExtractionSchemaForUpdate(text)

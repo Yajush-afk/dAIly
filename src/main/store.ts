@@ -100,6 +100,26 @@ export class Store {
   get planningRevision(): number {
     return Number(this.metadata('planning_revision'))
   }
+  setDayGoalPreference(goalId: string, until: string): void {
+    if (!this.config().goals.some((goal) => goal.id === goalId)) throw new Error('Unknown goal')
+    this.transaction(() => {
+      this.db
+        .prepare('INSERT OR REPLACE INTO metadata(key, value) VALUES (?, ?)')
+        .run('day_goal_preference', JSON.stringify({ goalId, until }))
+      this.bump(true)
+    })
+  }
+  private dayGoalPreference(now: number): string | undefined {
+    const saved = this.db
+      .prepare('SELECT value FROM metadata WHERE key = ?')
+      .get('day_goal_preference') as { value: string } | undefined
+    if (!saved) return undefined
+    const preference = JSON.parse(saved.value) as { goalId: string; until: string }
+    return Date.parse(preference.until) > now &&
+      this.config().goals.some((g) => g.id === preference.goalId)
+      ? preference.goalId
+      : undefined
+  }
   private bump(planning: boolean): void {
     this.db
       .prepare("UPDATE metadata SET value = CAST(value AS INTEGER) + 1 WHERE key = 'revision'")
@@ -210,6 +230,7 @@ export class Store {
     return {
       ...this.runtimeState(now),
       ...this.config(),
+      preferredGoalId: this.dayGoalPreference(now),
       tasks: [...this.config().tasks, ...this.activeTemporaryTasks(now)],
       plans: this.recent('plans', now - 7 * 86400000),
       sessions: this.recent('sessions', now - 7 * 86400000),

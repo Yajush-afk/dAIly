@@ -188,12 +188,24 @@ export function schedule(
           0,
         ) < choice.minutes,
   )
-  const summary =
-    decision.choices.length && !blocks.length
-      ? 'None of the suggested blocks fits your remaining availability. Stop here or ask for a smaller next step.'
-      : partiallyScheduled
-        ? `Start with ${blocks.find((block) => block.kind === 'focus')?.title}. Other suggested work did not fit and is deferred below.`
-        : decision.summary
+  const focused = [
+    ...new Set(blocks.filter((block) => block.kind === 'focus').map((block) => block.taskId)),
+  ]
+  const summary = focused.length
+    ? `Scheduled in order: ${focused
+        .map((id) => {
+          const minutes = blocks
+            .filter((block) => block.taskId === id)
+            .reduce(
+              (total, block) => total + (Date.parse(block.end) - Date.parse(block.start)) / 60000,
+              0,
+            )
+          return `${tasks.get(id!)!.title} (${Math.round(minutes)} minutes)`
+        })
+        .join(
+          '; ',
+        )}.${blocks.some((block) => block.kind === 'break') ? ' Breaks are included.' : ''}${partiallyScheduled ? ' Some suggested work did not fit; review the deferrals.' : ''}`
+    : 'None of the suggested blocks fits your remaining availability. Stop here or ask for a smaller next step.'
   return {
     id: randomUUID(),
     createdAt: new Date(now).toISOString(),
