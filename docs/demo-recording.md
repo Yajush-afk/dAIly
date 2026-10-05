@@ -1,5 +1,7 @@
 # Recording with sample data
 
+For all Windows commands, prerequisites, and troubleshooting in one place, see the [Windows guide](windows-guide.md).
+
 Close dAIly, including its tray process, before resetting a take.
 
 Run `npm run demo` to seed a separate database once and open the development app with it. Subsequent launches retain the take. Run `npm run demo:reset` to replace only this demo database with a fresh fixture and open the app. `npm run demo:reset -- --seed-only` prepares the fixture without opening a window. Ordinary `npm run dev` uses normal application data.
