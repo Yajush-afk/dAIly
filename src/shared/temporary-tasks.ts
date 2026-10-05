@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { DateTime } from 'luxon'
 import { Id } from './state'
 export const TemporaryTaskDraftSchema = z
   .object({
@@ -13,6 +14,20 @@ export const TemporaryTaskExtractionSchema = z
     tasks: z.array(TemporaryTaskDraftSchema).max(5),
   })
   .strict()
+export function parseTemporaryTaskExtraction(content: string, today: string) {
+  const date = DateTime.fromISO(today, { zone: 'UTC' })
+  if (!date.isValid) throw new Error('A valid local planning date is required.')
+  const relativeDeadline = z.preprocess((value) => {
+    if (typeof value !== 'string') return value
+    const relative = value.trim().toLowerCase()
+    if (relative === 'today') return date.toISODate()
+    if (relative === 'tomorrow') return date.plus({ days: 1 }).toISODate()
+    return value
+  }, TemporaryTaskDraftSchema.shape.deadline)
+  return TemporaryTaskExtractionSchema.extend({
+    tasks: z.array(TemporaryTaskDraftSchema.extend({ deadline: relativeDeadline })).max(5),
+  }).parse(JSON.parse(content))
+}
 export const TemporaryTaskDecisionSchema = z
   .object({
     kind: z.literal('propose_temporary_tasks'),
