@@ -20,6 +20,62 @@ Windows x64, from PowerShell in the repository:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\start-windows.ps1
 ```
 
+### Windows recording, step by step
+
+Use ordinary PowerShell, not an administrator terminal. Install [Git for Windows](https://git-scm.com/downloads/win) if `git --version` is unavailable, then open a new PowerShell window.
+
+1. Clone the repository on the recording laptop:
+
+   ```powershell
+   Set-Location $HOME
+   git clone https://github.com/Yajush-afk/dAIly.git
+   Set-Location .\dAIly
+   git switch main
+   git pull --ff-only
+   ```
+
+   For an existing checkout, change into its folder and run only the switch and pull commands. Quit its existing app from the tray before updating.
+
+2. Install everything, create a freshly dated demo database, and open the app:
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\start-windows.ps1 -Reset
+   ```
+
+   This prepares Node 24, installs pinned npm dependencies and Electron, installs/starts Ollama when needed, pulls Gemma, seeds the demo, and launches dAIly. Keep this terminal open. The first run needs internet and several minutes for downloads. The script uses `npm.cmd`, so PowerShell does not need a permanent execution-policy change. It reuses a local Node download on subsequent launches.
+
+3. For another launch with the same recording data, quit dAIly from its tray and press Ctrl+C in its terminal first:
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\start-windows.ps1 -SkipInstall
+   ```
+
+   `-SkipInstall` reuses installed dependencies and the downloaded model. It still checks model availability, starts Ollama if necessary, and handles SQLite's Node/Electron rebuilds. After pulling application updates or if dependencies/model are missing, run without `-SkipInstall`.
+
+4. For a fresh recording take, after quitting the app and stopping the terminal:
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\start-windows.ps1 -SkipInstall -Reset
+   ```
+
+   This replaces only the isolated demo database and starts the app. It removes the previous demo's conversations, added goals, plans, and outcomes. The sample profile, DSA/GSoC goals, and two days of history return with current dates. Personal application data is untouched.
+
+To reset the database without opening the app or starting Ollama, after completing initial installation:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-demo-db-windows.ps1 -SkipInstall -Reset
+```
+
+To check Ollama separately:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:11434/api/tags | ConvertTo-Json -Depth 5
+```
+
+Do not copy `node_modules` from Ubuntu. The Windows launcher installs Windows binaries. For the recording, use the source launcher above; the packaged installer opens personal data, not this isolated demo database. A first warm-up planning request helps you observe actual latency before recording. Model outputs can still fail validation, so review the proposed assignment and plan before accepting them.
+
+### Ubuntu launcher
+
 Ubuntu 24.04 or newer, from a terminal in the repository:
 
 ```bash
