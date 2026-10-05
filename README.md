@@ -38,4 +38,4 @@ With a checkout of this repository, run `bash ./start-ubuntu.sh` on Ubuntu 24.04
 
 For copying an exact demo take between computers, see [Demo recording and database transfer](docs/demo-recording.md).
 
-For a Windows recording, follow the [step-by-step PowerShell commands](docs/demo-recording.md#windows-recording-step-by-step). The first run uses `start-windows.ps1 -Reset`; subsequent takes can use `-SkipInstall -Reset` to reuse installed packages and Gemma.
+For Windows setup and recording, follow the [complete Windows guide](docs/windows-guide.md). It covers installation, demo resets, database transfers, personal use, and troubleshooting. The first run uses `start-windows.ps1 -Reset`; subsequent takes can use `-SkipInstall -Reset` to reuse installed packages and Gemma.

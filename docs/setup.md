@@ -2,6 +2,8 @@
 
 ## Windows setup
 
+For source installation, demo recording, database resets and transfers, and Windows troubleshooting, use the [complete Windows guide](windows-guide.md).
+
 1. Download `dAIly-Setup-0.1.0-x64.exe` from the `daily-windows-x64` artifact in the Windows application checks workflow. GitHub requires sign-in to download workflow artifacts.
 2. Run the installer for your Windows user. It is unsigned, so Windows may display an unknown publisher prompt. No administrator account is required for the normal installation.
 3. Open dAIly and save your routine. These starting values are editable. Set your own priorities, deadlines, weekly classes, and concrete tasks.
